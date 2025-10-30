@@ -1,4 +1,4 @@
-// main.queue.js (versión con cola y endpoint de QR)
+// main.queue.js (versión con cola, debug extendido y endpoint de estado)
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js')
 const express = require('express')
 const multer = require('multer')
@@ -42,6 +42,7 @@ let processingQueue = false
 
 async function enqueue(taskFn) {
   return new Promise((resolve, reject) => {
+    console.log('[queue] enqueue, length before:', sendQueue.length)
     sendQueue.push({ taskFn, resolve, reject })
     processQueue().catch(err => console.error('Error en processQueue:', err))
   })
@@ -50,42 +51,50 @@ async function enqueue(taskFn) {
 async function processQueue() {
   if (processingQueue) return
   processingQueue = true
+  console.log('[queue] processQueue starting')
   while (sendQueue.length > 0) {
     const item = sendQueue.shift()
+    console.log('[queue] processing task, remaining:', sendQueue.length)
     try {
       // cada tarea espera a que el cliente esté listo
       await waitForClientReady()
       const result = await item.taskFn()
       item.resolve(result)
+      console.log('[queue] task finished')
     } catch (err) {
       item.reject(err)
+      console.error('[queue] task failed:', err)
     }
   }
   processingQueue = false
+  console.log('[queue] processQueue empty')
 }
 
 // Espera hasta que client esté listo (o falla tras timeout)
-function waitForClientReady(timeout = 60000) {
+function waitForClientReady(timeout = 120000) {
   if (client && clientReady) return Promise.resolve()
   return new Promise((resolve, reject) => {
+    console.log('[waitForClientReady] clientReady?', clientReady, 'client?', !!client)
     const onReady = () => {
       clear()
+      console.log('[waitForClientReady] ready event fired')
       resolve()
     }
     const onTimeout = () => {
       cleanup()
+      console.error('[waitForClientReady] timeout waiting for client.ready')
       reject(new Error('Timeout esperando client.ready'))
     }
 
     function cleanup() {
-      client?.off('ready', onReady)
+      try { client?.off('ready', onReady) } catch(e){}
     }
     function clear() {
       cleanup()
       if (timer) clearTimeout(timer)
     }
 
-    client?.once('ready', onReady)
+    if (client) client.once('ready', onReady)
     const timer = setTimeout(onTimeout, timeout)
   })
 }
@@ -112,9 +121,19 @@ const createClient = (sessionId) => {
       qrStore.set(sessionId, dataUrl)
       // Además guardar un txt con dataURL por si se necesita
       fs.writeFileSync(`./qr-${sessionId}.txt`, dataUrl)
-      console.log(`✅ QR guardado como qr-${sessionId}.png y en memoria (qrStore).`)
+      console.log(`✅ QR guardado como qr-${sessionId}.png y en memoria (qrStore). Servir en /qr/${sessionId}`)
     } catch (err) {
       console.error(`❌ Error generando QR para ${sessionId}:`, err)
+    }
+  })
+
+  newClient.on('authenticated', (session) => {
+    console.log(`🔐 [${sessionId}] Evento authenticated (session guardada).`)
+    try {
+      fs.writeFileSync(`./session-${sessionId}.json`, JSON.stringify(session))
+      console.log(`🔁 session-${sessionId}.json escrita`)    
+    } catch (e) {
+      console.error('Error guardando session file:', e)
     }
   })
 
@@ -123,10 +142,11 @@ const createClient = (sessionId) => {
   })
 
   newClient.on('ready', () => {
-    console.log(`✅ Cliente ${sessionId} listo`)
+    console.log(`✅ Cliente ${sessionId} listo (ready)`)
     // marcar cliente listo globalmente si este es el cliente actual
     if (sessionIds[currentSessionIndex] === sessionId) {
       clientReady = true
+      console.log(`[global] clientReady set true for ${sessionId}`)
     }
   })
 
@@ -157,6 +177,11 @@ const createClient = (sessionId) => {
         timeouts.delete(idMensaje)
       }
     }
+  })
+
+  // debug: report all events (not too noisy)
+  newClient.on('change_state', (state) => {
+    console.log(`[${sessionId}] state changed:`, state)
   })
 
   return newClient
@@ -232,7 +257,24 @@ app.get('/qr/:sessionId', async (req, res) => {
 // Endpoint para obtener QR de la sesión actual
 app.get('/qr_current', async (req, res) => {
   const sessionId = sessionIds[currentSessionIndex]
-  return app._router.handle(req, res, () => {}, '/qr/' + sessionId) // redirect internamente
+  // simple wrapper
+  const pngPath = `./qr-${sessionId}.png`
+  if (fs.existsSync(pngPath)) return res.sendFile(require('path').resolve(pngPath))
+  if (qrStore.has(sessionId)) return res.json({ dataUrl: qrStore.get(sessionId) })
+  return res.status(404).json({ error: 'QR no encontrado para la sesión actual' })
+})
+
+// Endpoint de estado del cliente
+app.get('/client_status', (req, res) => {
+  const sessionId = sessionIds[currentSessionIndex]
+  return res.json({
+    clientReady,
+    currentSessionIndex,
+    sessionId,
+    queueLength: sendQueue.length,
+    qrStored: qrStore.has(sessionId),
+    qrFileExists: fs.existsSync(`./qr-${sessionId}.png`)
+  })
 })
 
 // Helper para formatear fecha
@@ -255,6 +297,12 @@ app.post('/enviar-mensaje', upload.none(), async (req, res) => {
   const chatId = `${numero}@c.us`
 
   try {
+    // si el cliente no está listo, devolvemos 503 rápido para no colgar al caller
+    if (!clientReady) {
+      console.warn('[enviar-mensaje] client not ready, rejecting with 503')
+      return res.status(503).json({ error: 'Client not ready. Escanea QR o espera a que se conecte.' })
+    }
+
     const result = await enqueue(async () => {
       const message = await client.sendMessage(chatId, texto)
       return message
@@ -279,6 +327,8 @@ app.post('/enviar-archivo', upload.single('archivo'), async (req, res) => {
   if (!numero || !filePath) return res.status(400).json({ error: 'Faltan datos' })
 
   try {
+    if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
+
     const result = await enqueue(async () => {
       const mimeType = mime.lookup(originalName) || 'application/octet-stream'
       const base64 = fs.readFileSync(filePath, 'base64')
@@ -306,6 +356,8 @@ app.post('/enviar-ubicacion', upload.none(), async (req, res) => {
   if (!numero || !lat || !lon) return res.status(400).json({ error: 'Faltan datos' })
 
   try {
+    if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
+
     const result = await enqueue(async () => {
       let location = `https://maps.google.com/maps?q=${lat},${lon}&z=17&hl=en`
       const message = await client.sendMessage(`${numero}@c.us`, location)
@@ -329,6 +381,8 @@ app.post('/esperar', upload.none(), async (req, res) => {
   const chatId = `${numero}@c.us`
 
   try {
+    if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
+
     const message = await enqueue(async () => {
       return await client.sendMessage(chatId, texto)
     })
