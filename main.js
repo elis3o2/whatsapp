@@ -1,11 +1,11 @@
-const { Client, LocalAuth, MessageMedia, List } = require('whatsapp-web.js')
+// main.js (con diagnóstico)
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js')
 const express = require('express')
 const multer = require('multer')
 const fs = require('fs')
 const mime = require('mime-types')
 const QRCode = require('qrcode')
 const qrcodeTerminal = require('qrcode-terminal')
-const path = require('path')
 
 const upload = multer({ dest: 'uploads/' })
 const app = express()
@@ -17,41 +17,53 @@ const sessionIds = ['numero1', 'numero2']
 let currentSessionIndex = 0
 let client = null
 
-const esperas = new Map()       // chatId -> idMensaje
-const respuestas = new Map()    // idMensaje ->  message
-const resolvers = new Map()     // idMensaje -> [resolve1, resolve2]
-const timeouts = new Map()      // idMensaje -> TimeoutID
+const esperas = new Map()
+const respuestas = new Map()
+const resolvers = new Map()
+const timeouts = new Map()
 
+// --------------------------- LOGS GLOBALES ---------------------------
+console.log('🟢 Iniciando main.js — pid:', process.pid)
 
+process.on('unhandledRejection', (reason, p) => {
+  console.error('Unhandled Rejection at Promise', p, 'reason:', reason)
+})
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err)
+})
 
-// 🔁 Función para iniciar una sesión
+// --------------------------- CREAR CLIENTE ---------------------------
 const createClient = (sessionId) => {
+  console.log(`🟡 Creando cliente para sessionId=${sessionId}`)
   const newClient = new Client({
     authStrategy: new LocalAuth({ clientId: sessionId }),
     puppeteer: {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
-    }
+    },
+    // opcional: aumentar timeout de puppeteer si la VM es lenta
+    // puppeteer: { ... , timeout: 60000 }
   })
 
   newClient.on('qr', (qr) => {
-    console.log(`📷 Escaneá el QR para ${sessionId}`)
+    console.log(`📷 [${sessionId}] Evento QR recibido. Generando terminal + archivo...`)
     qrcodeTerminal.generate(qr, { small: true })
-
-    QRCode.toFile(`./qr-${sessionId}.png`, qr, {
-      color: { dark: '#000', light: '#FFF' }
-    }, err => {
+    QRCode.toFile(`./qr-${sessionId}.png`, qr, {}, err => {
       if (err) console.error(`❌ Error al guardar QR de ${sessionId}:`, err)
       else console.log(`✅ QR guardado como qr-${sessionId}.png`)
     })
+  })
+
+  newClient.on('loading_screen', (percent, message) => {
+    console.log(`[${sessionId}] loading_screen ${percent}% — ${message}`)
   })
 
   newClient.on('ready', () => {
     console.log(`✅ Cliente ${sessionId} listo`)
   })
 
-  newClient.on('auth_failure', () => {
-    console.error(`❌ Fallo de autenticación para ${sessionId}`)
+  newClient.on('auth_failure', (msg) => {
+    console.error(`❌ Fallo de autenticación para ${sessionId}:`, msg || '(sin msg)')
   })
 
   newClient.on('disconnected', reason => {
@@ -60,20 +72,17 @@ const createClient = (sessionId) => {
   })
 
   newClient.on('message', async (message) => {
+    // log liviano para no spamear todo el tiempo
+    console.log(`[${sessionId}] mensaje de ${message.from}: ${message.body?.slice(0,100)}`)
     const chatId = message.from
-
     if (esperas.has(chatId)) {
       const idMensaje = esperas.get(chatId)
-
       respuestas.set(idMensaje, message)
-
       esperas.delete(chatId)
-
       if (resolvers.has(idMensaje)) {
         resolvers.get(idMensaje).forEach(r => r({ message }))
         resolvers.delete(idMensaje)
       }
-
       if (timeouts.has(idMensaje)) {
         clearTimeout(timeouts.get(idMensaje))
         timeouts.delete(idMensaje)
@@ -84,32 +93,68 @@ const createClient = (sessionId) => {
   return newClient
 }
 
-// 🔁 Manejo de cambio de sesión por error
+// --------------------------- FAILOVER ---------------------------
 const failover = () => {
-  if (client) client.destroy()
+  console.log('🔁 Ejecutando failover...')
+  try {
+    if (client) {
+      console.log('🔴 Destruyendo cliente actual...')
+      client.destroy().catch(e => console.error('Error al destroy client:', e))
+    }
+  } catch (e) {
+    console.error('Error en destroy:', e)
+  }
+
   currentSessionIndex = (currentSessionIndex + 1) % sessionIds.length
   const newSession = sessionIds[currentSessionIndex]
   console.log(`🔄 Cambiando a la sesión: ${newSession}`)
   client = createClient(newSession)
-  client.initialize()
 
-  // Iniciar servidor web una vez que esté listo
-  client.on('ready', () => {
-    app.listen(3005, '0.0.0.0',() => {
-      console.log('🚀 Servidor escuchando en http://localhost:3005')
-    })
+  try {
+    client.initialize()
+  } catch (e) {
+    console.error('Error al initialize en failover:', e)
+  }
+
+  client.once('ready', () => {
+    try {
+      if (!serverListening) {
+        serverListening = true
+        app.listen(3005, '0.0.0.0', () => {
+          console.log('🚀 Servidor escuchando en http://localhost:3005')
+        })
+      } else {
+        console.log('Servidor ya estaba escuchando — no intento bindear otra vez')
+      }
+    } catch (e) {
+      console.error('Error al iniciar express en failover:', e)
+    }
   })
 }
 
-// Inicializar primera sesión
-client = createClient(sessionIds[currentSessionIndex])
-client.initialize()
+// --------------------------- INICIALIZACIÓN ---------------------------
+let serverListening = false
 
-// Iniciar servidor web una vez que esté listo
-client.on('ready', () => {
-  app.listen(3005, '0.0.0.0', () => {
-    console.log('🚀 Servidor escuchando en http://localhost:3005')
-  })
+console.log('➡️ Creando cliente inicial...')
+client = createClient(sessionIds[currentSessionIndex])
+
+console.log('➡️ Inicializando cliente (initialize)...')
+try {
+  client.initialize()
+} catch (e) {
+  console.error('Error al client.initialize():', e)
+}
+
+client.once('ready', () => {
+  console.log('✅ Evento ready recibido (main). Inicializando servidor Express...')
+  if (!serverListening) {
+    serverListening = true
+    app.listen(3005, '0.0.0.0', () => {
+      console.log('🚀 Servidor escuchando en http://localhost:3005')
+    })
+  } else {
+    console.log('Servidor ya estaba escuchando')
+  }
 })
 
 // ---------------------- ENDPOINTS ----------------------
@@ -304,7 +349,7 @@ app.get('/estado', async (req, res) => {
   const chat = await client.getChatById(`${numero}@c.us`);
 
 
-  const messages = await chat.fetchMessages({ limit: 20, fromMe: true });
+  const messages = await chat.fetchMessages({ limit: 50, fromMe: true });
 
   const message = messages.find(m => m.id.id === id);
 

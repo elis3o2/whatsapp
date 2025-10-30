@@ -1,22 +1,10 @@
 {
-  "name": "wwbjs",
-  "version": "1.0.0",
-  "main": "main.js",
-  "scripts": {
-    "start": "node ."
-  },
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^5.1.0",
-    "multer": "^2.0.1",
+    "multer": "^2.0.2",
     "puppeteer": "^24.27.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.23.0"
+    "whatsapp-web.js": "^1.34.1"
   }
 }
