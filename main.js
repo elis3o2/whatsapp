@@ -1,4 +1,4 @@
-// main.queue.js (versión con cola, debug extendido y endpoint de estado)
+// main.js (con diagnóstico)
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js')
 const express = require('express')
 const multer = require('multer')
@@ -16,18 +16,14 @@ app.use(express.urlencoded({ extended: true }))
 const sessionIds = ['numero1', 'numero2']
 let currentSessionIndex = 0
 let client = null
-let clientReady = false
 
 const esperas = new Map()
 const respuestas = new Map()
 const resolvers = new Map()
 const timeouts = new Map()
 
-// Almacenamos el último QR en base64 para poder servirlo por HTTP desde otra máquina.
-const qrStore = new Map() // sessionId => dataUrl
-
 // --------------------------- LOGS GLOBALES ---------------------------
-console.log('🟢 Iniciando main.queue.js — pid:', process.pid)
+console.log('🟢 Iniciando main.js — pid:', process.pid)
 
 process.on('unhandledRejection', (reason, p) => {
   console.error('Unhandled Rejection at Promise', p, 'reason:', reason)
@@ -35,69 +31,6 @@ process.on('unhandledRejection', (reason, p) => {
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err)
 })
-
-// --------------------------- COLA SIMPLE (FIFO) ---------------------------
-const sendQueue = []
-let processingQueue = false
-
-async function enqueue(taskFn) {
-  return new Promise((resolve, reject) => {
-    console.log('[queue] enqueue, length before:', sendQueue.length)
-    sendQueue.push({ taskFn, resolve, reject })
-    processQueue().catch(err => console.error('Error en processQueue:', err))
-  })
-}
-
-async function processQueue() {
-  if (processingQueue) return
-  processingQueue = true
-  console.log('[queue] processQueue starting')
-  while (sendQueue.length > 0) {
-    const item = sendQueue.shift()
-    console.log('[queue] processing task, remaining:', sendQueue.length)
-    try {
-      // cada tarea espera a que el cliente esté listo
-      await waitForClientReady()
-      const result = await item.taskFn()
-      item.resolve(result)
-      console.log('[queue] task finished')
-    } catch (err) {
-      item.reject(err)
-      console.error('[queue] task failed:', err)
-    }
-  }
-  processingQueue = false
-  console.log('[queue] processQueue empty')
-}
-
-// Espera hasta que client esté listo (o falla tras timeout)
-function waitForClientReady(timeout = 120000) {
-  if (client && clientReady) return Promise.resolve()
-  return new Promise((resolve, reject) => {
-    console.log('[waitForClientReady] clientReady?', clientReady, 'client?', !!client)
-    const onReady = () => {
-      clear()
-      console.log('[waitForClientReady] ready event fired')
-      resolve()
-    }
-    const onTimeout = () => {
-      cleanup()
-      console.error('[waitForClientReady] timeout waiting for client.ready')
-      reject(new Error('Timeout esperando client.ready'))
-    }
-
-    function cleanup() {
-      try { client?.off('ready', onReady) } catch(e){}
-    }
-    function clear() {
-      cleanup()
-      if (timer) clearTimeout(timer)
-    }
-
-    if (client) client.once('ready', onReady)
-    const timer = setTimeout(onTimeout, timeout)
-  })
-}
 
 // --------------------------- CREAR CLIENTE ---------------------------
 const createClient = (sessionId) => {
@@ -107,34 +40,18 @@ const createClient = (sessionId) => {
     puppeteer: {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
-    }
+    },
+    // opcional: aumentar timeout de puppeteer si la VM es lenta
+    // puppeteer: { ... , timeout: 60000 }
   })
 
-  newClient.on('qr', async (qr) => {
+  newClient.on('qr', (qr) => {
     console.log(`📷 [${sessionId}] Evento QR recibido. Generando terminal + archivo...`)
-    try {
-      qrcodeTerminal.generate(qr, { small: true })
-      // Guardar archivo PNG local
-      await QRCode.toFile(`./qr-${sessionId}.png`, qr)
-      // Guardar dataURL en memoria para servir por HTTP
-      const dataUrl = await QRCode.toDataURL(qr)
-      qrStore.set(sessionId, dataUrl)
-      // Además guardar un txt con dataURL por si se necesita
-      fs.writeFileSync(`./qr-${sessionId}.txt`, dataUrl)
-      console.log(`✅ QR guardado como qr-${sessionId}.png y en memoria (qrStore). Servir en /qr/${sessionId}`)
-    } catch (err) {
-      console.error(`❌ Error generando QR para ${sessionId}:`, err)
-    }
-  })
-
-  newClient.on('authenticated', (session) => {
-    console.log(`🔐 [${sessionId}] Evento authenticated (session guardada).`)
-    try {
-      fs.writeFileSync(`./session-${sessionId}.json`, JSON.stringify(session))
-      console.log(`🔁 session-${sessionId}.json escrita`)    
-    } catch (e) {
-      console.error('Error guardando session file:', e)
-    }
+    qrcodeTerminal.generate(qr, { small: true })
+    QRCode.toFile(`./qr-${sessionId}.png`, qr, {}, err => {
+      if (err) console.error(`❌ Error al guardar QR de ${sessionId}:`, err)
+      else console.log(`✅ QR guardado como qr-${sessionId}.png`)
+    })
   })
 
   newClient.on('loading_screen', (percent, message) => {
@@ -142,12 +59,7 @@ const createClient = (sessionId) => {
   })
 
   newClient.on('ready', () => {
-    console.log(`✅ Cliente ${sessionId} listo (ready)`)
-    // marcar cliente listo globalmente si este es el cliente actual
-    if (sessionIds[currentSessionIndex] === sessionId) {
-      clientReady = true
-      console.log(`[global] clientReady set true for ${sessionId}`)
-    }
+    console.log(`✅ Cliente ${sessionId} listo`)
   })
 
   newClient.on('auth_failure', (msg) => {
@@ -156,13 +68,12 @@ const createClient = (sessionId) => {
 
   newClient.on('disconnected', reason => {
     console.warn(`⚠️ ${sessionId} desconectado: ${reason}`)
-    clientReady = false
     failover()
   })
 
   newClient.on('message', async (message) => {
     // log liviano para no spamear todo el tiempo
-    console.log(`[${sessionId}] mensaje de ${message.from}: ${String(message.body || '').slice(0,100)}`)
+    console.log(`[${sessionId}] mensaje de ${message.from}: ${message.body?.slice(0,100)}`)
     const chatId = message.from
     if (esperas.has(chatId)) {
       const idMensaje = esperas.get(chatId)
@@ -177,11 +88,6 @@ const createClient = (sessionId) => {
         timeouts.delete(idMensaje)
       }
     }
-  })
-
-  // debug: report all events (not too noisy)
-  newClient.on('change_state', (state) => {
-    console.log(`[${sessionId}] state changed:`, state)
   })
 
   return newClient
@@ -199,7 +105,6 @@ const failover = () => {
     console.error('Error en destroy:', e)
   }
 
-  clientReady = false
   currentSessionIndex = (currentSessionIndex + 1) % sessionIds.length
   const newSession = sessionIds[currentSessionIndex]
   console.log(`🔄 Cambiando a la sesión: ${newSession}`)
@@ -210,18 +115,25 @@ const failover = () => {
   } catch (e) {
     console.error('Error al initialize en failover:', e)
   }
+
+  client.once('ready', () => {
+    try {
+      if (!serverListening) {
+        serverListening = true
+        app.listen(3005, '0.0.0.0', () => {
+          console.log('🚀 Servidor escuchando en http://localhost:3005')
+        })
+      } else {
+        console.log('Servidor ya estaba escuchando — no intento bindear otra vez')
+      }
+    } catch (e) {
+      console.error('Error al iniciar express en failover:', e)
+    }
+  })
 }
 
 // --------------------------- INICIALIZACIÓN ---------------------------
 let serverListening = false
-
-// Primero iniciamos el servidor para que esté aceptando conexiones ANTES de que aparezcan los QR.
-if (!serverListening) {
-  serverListening = true
-  app.listen(3005, '0.0.0.0', () => {
-    console.log('🚀 Servidor escuchando en http://0.0.0.0:3005')
-  })
-}
 
 console.log('➡️ Creando cliente inicial...')
 client = createClient(sessionIds[currentSessionIndex])
@@ -234,89 +146,50 @@ try {
 }
 
 client.once('ready', () => {
-  console.log('✅ Evento ready recibido (main). Cliente inicial listo')
+  console.log('✅ Evento ready recibido (main). Inicializando servidor Express...')
+  if (!serverListening) {
+    serverListening = true
+    app.listen(3005, '0.0.0.0', () => {
+      console.log('🚀 Servidor escuchando en http://localhost:3005')
+    })
+  } else {
+    console.log('Servidor ya estaba escuchando')
+  }
 })
 
 // ---------------------- ENDPOINTS ----------------------
-// Endpoint para obtener QR (por sessionId)
-app.get('/qr/:sessionId', async (req, res) => {
-  const sessionId = req.params.sessionId
-  const pngPath = `./qr-${sessionId}.png`
-  if (fs.existsSync(pngPath)) {
-    return res.sendFile(require('path').resolve(pngPath))
-  }
-
-  if (qrStore.has(sessionId)) {
-    // devolvemos la dataURL en JSON
-    return res.json({ dataUrl: qrStore.get(sessionId) })
-  }
-
-  return res.status(404).json({ error: 'QR no encontrado para esa sesión' })
-})
-
-// Endpoint para obtener QR de la sesión actual
-app.get('/qr_current', async (req, res) => {
-  const sessionId = sessionIds[currentSessionIndex]
-  // simple wrapper
-  const pngPath = `./qr-${sessionId}.png`
-  if (fs.existsSync(pngPath)) return res.sendFile(require('path').resolve(pngPath))
-  if (qrStore.has(sessionId)) return res.json({ dataUrl: qrStore.get(sessionId) })
-  return res.status(404).json({ error: 'QR no encontrado para la sesión actual' })
-})
-
-// Endpoint de estado del cliente
-app.get('/client_status', (req, res) => {
-  const sessionId = sessionIds[currentSessionIndex]
-  return res.json({
-    clientReady,
-    currentSessionIndex,
-    sessionId,
-    queueLength: sendQueue.length,
-    qrStored: qrStore.has(sessionId),
-    qrFileExists: fs.existsSync(`./qr-${sessionId}.png`)
-  })
-})
-
-// Helper para formatear fecha
-function formatFechaFromMessage(message) {
-  const fechaLocal = new Date(message.timestamp * 1000).toLocaleString('sv-SE', {
-    timeZone: 'America/Argentina/Buenos_Aires',
-    hour12: false
-  }).replace(' ', 'T')
-  return fechaLocal
-}
-
 app.post('/enviar-mensaje', upload.none(), async (req, res) => {
   const { numero, texto } = req.body
   if (!numero || !texto) return res.status(400).json({ error: 'Faltan datos' })
 
   if (numero.length !== 13) {
-    return res.status(404).json({ error: 'Número inválido' })
+    return res.status(404).json({ error: 'Número inválido' });
   }
 
   const chatId = `${numero}@c.us`
 
   try {
-    // si el cliente no está listo, devolvemos 503 rápido para no colgar al caller
-    if (!clientReady) {
-      console.warn('[enviar-mensaje] client not ready, rejecting with 503')
-      return res.status(503).json({ error: 'Client not ready. Escanea QR o espera a que se conecte.' })
-    }
+    const message = await client.sendMessage(chatId, texto)
+    const fechaLocal = new Date(message.timestamp * 1000).toLocaleString('sv-SE', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      hour12: false
+    }).replace(' ', 'T')
 
-    const result = await enqueue(async () => {
-      const message = await client.sendMessage(chatId, texto)
-      return message
+    res.json({ 
+      id: message.id.id, 
+      ack: message.ack, 
+      from: message._data.from.user, 
+      to: message._data.to.user, 
+      time: fechaLocal 
     })
-
-    const fechaLocal = formatFechaFromMessage(result)
-    res.json({ id: result.id.id, ack: result.ack, from: result._data.from.user, to: result._data.to.user, time: fechaLocal })
-  }
+  } 
   catch (err) {
-    console.error('❌ Error al enviar mensaje (queued):', err)
+    console.error('❌ Error al enviar mensaje:', err)
     failover()
     res.status(500).json({ error: 'Falló el envío del mensaje' })
   }
 })
+
 
 // Enviar archivo
 app.post('/enviar-archivo', upload.single('archivo'), async (req, res) => {
@@ -327,26 +200,22 @@ app.post('/enviar-archivo', upload.single('archivo'), async (req, res) => {
   if (!numero || !filePath) return res.status(400).json({ error: 'Faltan datos' })
 
   try {
-    if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
+    const mimeType = mime.lookup(originalName) || 'application/octet-stream'
+    const base64 = fs.readFileSync(filePath, 'base64')
+    const media = new MessageMedia(mimeType, base64, originalName)
 
-    const result = await enqueue(async () => {
-      const mimeType = mime.lookup(originalName) || 'application/octet-stream'
-      const base64 = fs.readFileSync(filePath, 'base64')
-      const media = new MessageMedia(mimeType, base64, originalName)
-      const message = await client.sendMessage(`${numero}@c.us`, media, { caption: texto })
-      return message
-    })
-
-    // borrar archivo temporal
-    try { fs.unlinkSync(filePath) } catch (e) { /* ignore */ }
-
-    const fechaLocal = formatFechaFromMessage(result)
-    res.json({ id: result.id.id, status: 'OK', from: result._data.from.user, to: result._data.to.user, time: fechaLocal })
+    const message = await client.sendMessage(`${numero}@c.us`, media, { caption: texto })
+    fs.unlinkSync(filePath)
+    const fechaLocal = new Date(message.timestamp * 1000).toLocaleString('sv-SE', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      hour12: false
+    }).replace(' ', 'T')
+    res.json({ id: message.id.id, status: 'OK', from: message._data.from.user, to: message._data.to.user, time: fechaLocal })
   } catch (err) {
-    try { fs.unlinkSync(filePath) } catch (e) { /* ignore */ }
-    console.error('❌ Error al enviar archivo (queued):', err)
+    fs.unlinkSync(filePath)
+    console.error('❌ Error al enviar archivo:', err)
     failover()
-    res.status(500).json({ error: 'Falló el envío del archivo' })
+    res.status(500).json({ error: 'Falló el envío del mensaje' })
   }
 })
 
@@ -356,24 +225,21 @@ app.post('/enviar-ubicacion', upload.none(), async (req, res) => {
   if (!numero || !lat || !lon) return res.status(400).json({ error: 'Faltan datos' })
 
   try {
-    if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
-
-    const result = await enqueue(async () => {
-      let location = `https://maps.google.com/maps?q=${lat},${lon}&z=17&hl=en`
-      const message = await client.sendMessage(`${numero}@c.us`, location)
-      return message
-    })
-
-    const fechaLocal = formatFechaFromMessage(result)
-    res.json({ id: result.id.id, status: 'OK', from: result._data.from.user, to: result._data.to.user, time: fechaLocal })
+    let location = `https://maps.google.com/maps?q=${lat},${lon}&z=17&hl=en`
+    const message = await client.sendMessage(`${numero}@c.us`, location)
+    const fechaLocal = new Date(message.timestamp * 1000).toLocaleString('sv-SE', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      hour12: false
+    }).replace(' ', 'T')
+    res.json({ id: message.id.id, status: 'OK', from: message._data.from.user, to: message._data.to.user, time: fechaLocal })
   } catch (err) {
-    console.error('❌ Error al enviar ubicación (queued):', err)
+    console.error('❌ Error al enviar ubicación:', err)
     failover()
     res.status(500).json({ error: 'Falló el envío de la ubicación' })
   }
 })
 
-// Confirmación (/esperar) mantiene la lógica pero el envío queda en cola
+// Confirmación
 app.post('/esperar', upload.none(), async (req, res) => {
   const { numero, texto } = req.body
   if (!numero || !texto) return res.status(400).json({ error: 'Faltan datos' })
@@ -381,12 +247,7 @@ app.post('/esperar', upload.none(), async (req, res) => {
   const chatId = `${numero}@c.us`
 
   try {
-    if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
-
-    const message = await enqueue(async () => {
-      return await client.sendMessage(chatId, texto)
-    })
-
+    const message = await client.sendMessage(chatId, texto)
     const idMensaje = message.id.id
 
     // Guardar la espera
@@ -410,20 +271,28 @@ app.post('/esperar', upload.none(), async (req, res) => {
 
     timeouts.set(idMensaje, timeoutId)
 
-    const fechaLocal = formatFechaFromMessage(message)
+    const fechaLocal = new Date(message.timestamp * 1000).toLocaleString('sv-SE', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      hour12: false
+    }).replace(' ', 'T')
     // Devolver ID para poder consultar luego
     res.json({ id: message.id.id, ack: message.ack, from: message._data.from.user, to: message._data.to.user, time: fechaLocal })
   } catch (err) {
-    console.error('❌ Error al enviar mensaje (esperar):', err)
+    console.error('❌ Error al enviar mensaje:', err)
     res.status(500).json({ error: 'Falló el envío del mensaje' })
   }
 })
+
+
 
 app.get('/respuesta/:idMensaje', async (req, res) => {
   const idMensaje = req.params.idMensaje
   if (respuestas.has(idMensaje)) {
     const message = respuestas.get(idMensaje)
-    const fechaLocal = formatFechaFromMessage(message)
+    const fechaLocal = new Date(message.timestamp * 1000).toLocaleString('sv-SE', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      hour12: false
+    }).replace(' ', 'T')
     return res.json({
       id: message.id.id,
       message: message.body,
@@ -441,17 +310,22 @@ app.get('/respuesta/:idMensaje', async (req, res) => {
   }
 
   // Esperamos respuesta o timeout
+  // Esperar asincrónicamente a que llegue o expire
   const respuesta = await new Promise(resolve => {
     resolvers.get(idMensaje).push(resolve)
   })
+
 
   if (!respuesta) {
     return res.status(404).json({ error: 'Tiempo agotado' })
   }
 
   const { message } = respuesta
-  const fechaLocal = formatFechaFromMessage(message)
-
+  const fechaLocal = new Date(message.timestamp * 1000).toLocaleString('sv-SE', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    hour12: false
+  }).replace(' ', 'T')
+  
   return res.json({
     id: message.id.id,
     message: message.body,
@@ -461,6 +335,7 @@ app.get('/respuesta/:idMensaje', async (req, res) => {
   })
 })
 
+
 app.get('/estado', async (req, res) => {
   const id = req.query.id;
   const numero = req.query.numero;
@@ -468,7 +343,7 @@ app.get('/estado', async (req, res) => {
   if (!numero || !id) return res.status(400).json({ error: 'Faltan datos' })
   
   if (numero.length !== 13) {
-    return res.status(404).json({ error: 'Número inválido' })
+    return res.status(404).json({ error: 'Número inválido' });
   }
   
   const chat = await client.getChatById(`${numero}@c.us`);
@@ -483,10 +358,16 @@ app.get('/estado', async (req, res) => {
   }
 
   else{
-    const fechaLocal = formatFechaFromMessage(message)
+    const fechaLocal = new Date(message.timestamp * 1000).toLocaleString('sv-SE', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      hour12: false
+    }).replace(' ', 'T')
       res.json({ id: message.id.id, ack:message.ack,   from: message.from, to: message.to,time: fechaLocal })
   }
 });
+
+
+
 
 app.get('/get_mensajes/:numero', async (req, res) => {
   const numero =  req.params.numero
@@ -511,6 +392,3 @@ app.get('/get_mensajes/:numero', async (req, res) => {
     res.status(500).json({ error: 'Error al obtener mensajes' });
   }
 });
-
-// export para tests
-module.exports = { app }
