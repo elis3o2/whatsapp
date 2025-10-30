@@ -248,6 +248,7 @@ function safeUnlinkSync(p) {
 // Para ahorrar espacio no los repito aquí; mantén exactamente los handlers que tenías.
 // Asegurate de copiar los handlers previos entre este comentario y el endpoint QR abajo.
 
+
 // Servir archivo PNG del QR (si existe)
 app.get('/qr/:sessionId', (req, res) => {
   const { sessionId } = req.params
