@@ -9,7 +9,7 @@ const qrcodeTerminal = require('qrcode-terminal')
 
 const upload = multer({ dest: 'uploads/' })
 const app = express()
-
+const util = require('util'); // arriba en el archivo
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
@@ -128,15 +128,36 @@ const createClient = (sessionId) => {
   })
 
   newClient.on('authenticated', (session) => {
-    console.log(`🔐 [${sessionId}] Evento authenticated (session guardada).`)
+    console.log(`🔐 [${sessionId}] Evento authenticated (session guardada).`);
     try {
-      fs.writeFileSync(`./session-${sessionId}.json`, JSON.stringify(session))
-      console.log(`🔁 session-${sessionId}.json escrita`)    
-    } catch (e) {
-      console.error('Error guardando session file:', e)
-    }
-  })
+      if (!session) {
+        console.warn(`⚠️ [${sessionId}] Evento 'authenticated' recibido SIN datos de session. No se guardará archivo.`);
+        return;
+      }
 
+      // IntenTamos stringify, si falla usamos util.inspect como fallback
+      let sessionStr;
+      try {
+        sessionStr = JSON.stringify(session);
+        // JSON.stringify puede devolver undefined si session === undefined, pero ya lo chequeamos arriba
+      } catch (jsonErr) {
+        console.warn(`⚠️ [${sessionId}] JSON.stringify falló, usando util.inspect como fallback:`, jsonErr);
+        sessionStr = util.inspect(session, { depth: null });
+      }
+
+      // Aseguramos que la carpeta exista (opcional)
+      const sessionPath = `./session-${sessionId}.json`;
+      const sessionDir = require('path').dirname(sessionPath);
+      if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
+      }
+
+      fs.writeFileSync(sessionPath, sessionStr, 'utf8');
+      console.log(`🔁 session-${sessionId}.json escrita`);
+    } catch (e) {
+      console.error('Error guardando session file:', e);
+    }
+  });
   newClient.on('loading_screen', (percent, message) => {
     console.log(`[${sessionId}] loading_screen ${percent}% — ${message}`)
   })
