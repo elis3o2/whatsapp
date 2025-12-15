@@ -13,8 +13,9 @@ app = FastAPI()
 
 # ----- CONFIG -----
 HOST = "127.0.0.1"                            # host destino
-SESSIONS = ['a', 'b', 'c']                      # sesiones identificadoras (orden para round-robin)
-SESSIONS_PORT = {'a': 3005, 'b': 3006, 'c': 3007}
+SESSIONS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']                      # sesiones identificadoras (orden para round-robin)
+SESSIONS_PORT = {'a': 3005, 'b': 3006, 'c': 3007, 'd': 3008, 'e': 3009, 
+                'f': 3010, 'g': 3011, 'h': 3012, 'i': 3013, 'j': 3014}
 FORWARD_TIMEOUT = 30                          # segundos
 HOP_BY_HOP_HEADERS = {
     'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
