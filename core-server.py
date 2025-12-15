@@ -96,7 +96,8 @@ def _make_requests_loop_and_forward(method: str, path: str, headers: dict, param
                 params=params,
                 data=data_param,
                 files=files_payload,
-                timeout=FORWARD_TIMEOUT
+                timeout=FORWARD_TIMEOUT,
+                proxies={"http": None, "https": None} 
             )
 
             # Si la respuesta tiene status >= 500, consideramos fallo y probamos siguiente puerto
@@ -156,7 +157,8 @@ def _make_request_single_port(method: str, path: str, headers: dict, params: dic
             params=params,
             data=data_param,
             files=files_payload,
-            timeout=FORWARD_TIMEOUT
+            timeout=FORWARD_TIMEOUT,
+            proxies={"http": None, "https": None} 
         )
 
         # guardamos lo que venga (incluso 5xx). Caller decidirá si considera error o no.
@@ -224,7 +226,7 @@ async def enviar_mensaje(numero: str = Body(..., description="Número destino"),
         params=params,
         data_bytes=body,
         files_for_requests=None,
-        start_ports=start_ports
+        start_ports=start_ports,
     )
 
 # POST: enviar-archivo (espera campo 'archivo' o multipart form-data). POST still uses round-robin + failover.
