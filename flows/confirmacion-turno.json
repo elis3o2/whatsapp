@@ -1,0 +1,48 @@
+{
+  "id": "confirmar_turno_v1",
+  "start": "pregunta_confirmacion",
+  "nodes": {
+    "pregunta_confirmacion": {
+      "type": "input",
+      "template": "¿Desea confirmar su turno? Responda con un número\n1- Si confirma el turno.\n2- Si no podra asistir al turno.\n3- Si considera que el mensaje es un error.",
+      "next": {
+        "any": "procesar_respuesta"
+      }
+    },
+
+    "procesar_respuesta": {
+      "type": "router",
+      "routes": {
+        "1": "turno_confirmado",
+        "2": "turno_cancelado",
+        "3": "turno_erroneo"
+      },
+      "default": "no_entendido"
+    },
+
+    "turno_confirmado": {
+      "type": "message",
+      "template": "Turno confirmado. Lo esperamos.",
+      "next": {}
+    },
+
+    "turno_cancelado": {
+      "type": "message",
+      "template": "Turno cancelado.",
+      "next": {}
+    },
+    "turno_erroneo": {
+      "type": "message",
+      "template": "Gracias por su respuesta.",
+      "next": {}
+    },
+
+    "no_entendido": {
+      "type": "message",
+      "template": "No logro entenderte.",
+      "next": {
+        "any": "pregunta_confirmacion"
+      }
+    }
+  }
+}
