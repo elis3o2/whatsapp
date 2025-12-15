@@ -316,6 +316,42 @@ async def esperar(numero: str = Body(..., description="Número destino"),
         start_ports=start_ports
     )
 
+@app.post("/start_flow")
+async def start_flow(
+    flowName: str = Form(..., description="Nombre del flow"),
+    numero: str = Form(..., description="Número destino"),
+    endpoint: str = Form(..., description="Endpoint callback"),
+    request: Request = None
+):
+    # reconstruimos el form para reenviar
+    form = await request.form()
+
+    form_fields = {}
+    for k, v in form.items():
+        if not isinstance(v, UploadFile):
+            form_fields[k] = v
+
+    # no hay archivos, solo form-data
+    data_bytes = urllib.parse.urlencode(form_fields).encode("utf-8")
+
+    headers = dict(request.headers)
+    params = dict(request.query_params)
+
+    start_idx = get_next_session_round_robin_index()
+    start_ports = ports_list_order_from_index(start_idx)
+
+    return run_forward_thread_and_get_response(
+        method="POST",
+        path=request.url.path,     # /start_flow
+        headers=headers,
+        params=params,
+        data_bytes=data_bytes,
+        files_for_requests=None,
+        start_ports=start_ports
+    )
+
+
+
 # GET endpoints: require session param -> use single port (no failover)
 def _extract_session_param_or_400(request: Request):
     """Extrae session del query param y valida; si falta o es inválido devuelve JSONResponse (400)."""
@@ -331,7 +367,7 @@ def _extract_session_param_or_400(request: Request):
 
 
 
-@app.get("/respuesta/{session}")
+@app.get("/respuesta")
 async def respuesta(session: str = Path(..., description="Session id"),
                     numero: Optional[str] = Query(None, description="Número"),
                     texto: Optional[str] = Query(None, description="Texto"),
