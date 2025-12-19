@@ -235,7 +235,7 @@ async def enviar_mensaje(numero: str = Body(..., description="Número destino"),
 @app.post("/enviar-archivo")
 async def enviar_archivo(numero: str = Form(..., description="Número destino"),
                          texto: Optional[str] = Form(None, description="Texto (opcional)"),
-                         archivo: Optional[UploadFile] = File(None, description="Archivo (campo 'archivo')"),
+                         archivo: str = File(None, description="Archivo (campo 'archivo')"),
                          request: Request = None):
     form = await request.form()
     files_payload = {}
@@ -369,9 +369,8 @@ def _extract_session_param_or_400(request: Request):
 
 
 @app.get("/respuesta")
-async def respuesta(session: str = Path(..., description="Session id"),
-                    numero: Optional[str] = Query(None, description="Número"),
-                    texto: Optional[str] = Query(None, description="Texto"),
+async def respuesta(idMensaje: str = Path(..., description="id de mensaje enviado"),
+                    session: str = Path(..., description="sesión por la que se envió el mensaje"),
                     request: Request = None):
 
     port_or_resp = _extract_session_param_or_400(request)
@@ -394,7 +393,10 @@ async def respuesta(session: str = Path(..., description="Session id"),
     )
 
 @app.get("/estado")
-async def estado(request: Request):
+async def estado(request: Request,
+                session: str = Path(..., description="sesión por la que se envió el mensaje"),
+                id: str = Path(..., description="id del mensaje"),
+                numero: str = Path(..., description="número de telefono enviado")):
     port_or_resp = _extract_session_param_or_400(request)
     if isinstance(port_or_resp, JSONResponse):
         return port_or_resp
@@ -414,7 +416,9 @@ async def estado(request: Request):
     )
 
 @app.get("/get_mensajes")
-async def get_mensajes(numero: str, request: Request):
+async def get_mensajes(request: Request,
+                session: str = Path(..., description="Sesión por la que se envió el mensaje"),
+                numero: str = Path(..., description="Número de telefono enviado")):
     port_or_resp = _extract_session_param_or_400(request)
     if isinstance(port_or_resp, JSONResponse):
         return port_or_resp
@@ -435,7 +439,8 @@ async def get_mensajes(numero: str, request: Request):
 
 
 @app.get("/qr")
-async def get_qr(request: Request):
+async def get_qr(request: Request,
+                session: str = Path(..., description="Sesión dew whatsapp")):
     port_or_resp = _extract_session_param_or_400(request)
     if isinstance(port_or_resp, JSONResponse):
         return port_or_resp
@@ -456,7 +461,8 @@ async def get_qr(request: Request):
 
 
 @app.get("/status")
-async def get_status(request: Request):
+async def get_status(request: Request,
+                session: str = Path(..., description="Sesión dew whatsapp")):
     port_or_resp = _extract_session_param_or_400(request)
     if isinstance(port_or_resp, JSONResponse):
         return port_or_resp
