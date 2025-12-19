@@ -475,6 +475,49 @@ async def get_status(request: Request):
     )
 
 
+@app.get("/status-all")
+async def status_all():
+    results = []
+
+    for session in SESSIONS:
+        port = SESSIONS_PORT[session]
+        result = {}
+
+        # usamos la función de request a un solo puerto
+        _make_request_single_port(
+            method="GET",
+            path="/status",
+            headers={},
+            params={"session": session},
+            data_bytes=None,
+            files_for_requests=None,
+            port=port,
+            result=result
+        )
+
+        if "error" in result:
+            results.append({
+                "session": session,
+                "state": "error"
+            })
+            continue
+
+        try:
+            data = result["content"]
+            response_json = data and json.loads(data.decode("utf-8"))
+            state = response_json.get("state")
+        except Exception:
+            state = "unknown"
+
+        results.append({
+            "session": session,
+            "state": state
+        })
+
+    return results
+
+
+
 
 
 # Debug endpoint

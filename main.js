@@ -578,7 +578,7 @@ app.post('/esperar', upload.none(), async (req, res) => {
   }
 })
 
-app.get('/respuesta/:idMensaje', async (req, res) => {
+app.get('/respuesta', async (req, res) => {
   const idMensaje = req.params.idMensaje
   if (respuestas.has(idMensaje)) {
     const message = respuestas.get(idMensaje)
@@ -608,7 +608,7 @@ app.get('/estado', async (req, res) => {
   res.json({ id: message.id.id, ack: message.ack, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID })
 })
 
-app.get('/get_mensajes/:numero', async (req, res) => {
+app.get('/get_mensajes', async (req, res) => {
   const numero = req.params.numero
   if (!numero) return res.status(400).json({ error: 'Faltan datos' })
   const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
