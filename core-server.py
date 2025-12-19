@@ -511,7 +511,8 @@ async def status_all():
 
         results.append({
             "session": session,
-            "state": state
+            "state": state,
+            "port": port
         })
 
     return results
