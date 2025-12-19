@@ -7,6 +7,7 @@ from io import BytesIO
 import urllib.parse
 from typing import Optional
 from fastapi import Body, Query, Path, Form, File, UploadFile
+import json
 
 
 app = FastAPI()
@@ -483,7 +484,6 @@ async def status_all():
         port = SESSIONS_PORT[session]
         result = {}
 
-        # usamos la función de request a un solo puerto
         _make_request_single_port(
             method="GET",
             path="/status",
@@ -503,9 +503,9 @@ async def status_all():
             continue
 
         try:
-            data = result["content"]
-            response_json = data and json.loads(data.decode("utf-8"))
-            state = response_json.get("state")
+            raw = result.get("content", b"")
+            data = json.loads(raw.decode("utf-8"))
+            state = data.get("state", "unknown")
         except Exception:
             state = "unknown"
 
@@ -515,8 +515,6 @@ async def status_all():
         })
 
     return results
-
-
 
 
 
