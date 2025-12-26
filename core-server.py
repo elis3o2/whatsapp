@@ -15,8 +15,8 @@ app = FastAPI()
 # ----- CONFIG -----
 HOST = "127.0.0.1"                            # host destino
 SESSIONS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']                      # sesiones identificadoras (orden para round-robin)
-SESSIONS_PORT = {'a': 3005, 'b': 3006, 'c': 3007, 'd': 3008, 'e': 3009, 
-                'f': 3010, 'g': 3011, 'h': 3012, 'i': 3013, 'j': 3014}
+SESSIONS_PORT = {'a': 3021, 'b': 3022, 'c': 3023, 'd': 3024, 'e': 3025, 
+                'f': 3026, 'g': 3027, 'h': 3028, 'i': 3029, 'j': 3030}
 FORWARD_TIMEOUT = 30                          # segundos
 HOP_BY_HOP_HEADERS = {
     'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
@@ -319,22 +319,13 @@ async def esperar(numero: str = Body(..., description="Número destino"),
 
 @app.post("/start_flow")
 async def start_flow(
-    flowName: str = Form(..., description="Nombre del flow"),
-    numero: str = Form(..., description="Número destino"),
-    endpoint: str = Form(..., description="Endpoint callback"),
+    flowName: str = Body(..., description="Nombre del flow"),
+    numero: str = Body(..., description="Número destino"),
+    endpoint: str = Body(..., description="Endpoint callback"),
     request: Request = None
 ):
     # reconstruimos el form para reenviar
-    form = await request.form()
-
-    form_fields = {}
-    for k, v in form.items():
-        if not isinstance(v, UploadFile):
-            form_fields[k] = v
-
-    # no hay archivos, solo form-data
-    data_bytes = urllib.parse.urlencode(form_fields).encode("utf-8")
-
+    body = await request.body()
     headers = dict(request.headers)
     params = dict(request.query_params)
 
