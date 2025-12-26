@@ -103,7 +103,7 @@ def _make_requests_loop_and_forward(method: str, path: str, headers: dict, param
             )
 
             # Si la respuesta tiene status >= 500, consideramos fallo y probamos siguiente puerto
-            if resp.status_code >= 500:
+            if resp.status_code > 500:
                 last_error = f"HTTP {resp.status_code} from {url}"
                 continue
 
