@@ -440,11 +440,11 @@ app.post('/start_flow', upload.none(), async (req, res) => {
   if (!flowName || !numero || !endpoint) return res.status(400).json({ error: 'Faltan datos: flowName, numero, endpoint' })
   if (numero.length !== 13) return res.status(404).json({ error: 'Número inválido' })
   const chatId = `${numero}@c.us`
+  const isRegistered = await client.isRegisteredUser(chatId)
+  if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
+
 
   try {
-    const isRegistered = await client.isRegisteredUser(chatId)
-    if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
-    if (!clientReady) return res.status(503).json({ error: 'Client not ready. Escanea QR o espera a que se conecte.' })
 
     let flowJson
     try { flowJson = loadFlowByName(flowName) } catch (e) { return res.status(404).json({ error: 'Flow no encontrado o inválido: ' + e.message }) }
