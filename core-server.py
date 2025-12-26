@@ -337,7 +337,7 @@ async def start_flow(
         path=request.url.path,     # /start_flow
         headers=headers,
         params=params,
-        data_bytes=data_bytes,
+        data_bytes=body,
         files_for_requests=None,
         start_ports=start_ports
     )
