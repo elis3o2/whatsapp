@@ -4,3 +4,5 @@ node_modules
 qr
 uploads
 wwbjs-logs
+.wwebjs_auth
+.wwebjs_cache

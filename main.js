@@ -328,7 +328,9 @@ async function processFlowForChat(flowJson, chatId, webhook, id) {
       const text = mustache.render(node.template || '', ctx.vars || {})
 
       if (node.type === 'message') {
-        const sent = await enqueue(async () => { return await client.sendMessage(chatId, text) })
+        const sent = await enqueue(async () => { return await client.sendMessage(chatId, text, {
+        sendSeen: false
+    }); })
         const fechaLocalSent = formatFechaFromMessage(sent)
         if (webhook) {
           axios.post(webhook, { event: 'outgoing_node', flow: flowName, time: fechaLocalSent, id: sent.id.id, nodeId, from: sent._data.from.user, to: sent._data.to.user, id: id, session: SESSION_ID }).catch(()=>{})
@@ -338,7 +340,9 @@ async function processFlowForChat(flowJson, chatId, webhook, id) {
         if (nextNode) { nodeId = nextNode; const af = activeFlows.get(chatId) || {}; af.nodeId = nodeId; af.vars = ctx.vars; activeFlows.set(chatId, af); continue } else { nodeId = null; break }
 
       } else if (node.type === 'input') {
-        const sent = await enqueue(async () => { return await client.sendMessage(chatId, text) })
+        const sent = await enqueue(async () => { return await client.sendMessage(chatId, text, {
+        sendSeen: false
+    }); })
         const fechaLocalSent = formatFechaFromMessage(sent)
         if (webhook) axios.post(webhook, { event: 'input', flow: flowName, id: sent.id.id, from: sent._data.from.user, to: sent._data.to.user, time: fechaLocalSent, nodeId, id: id, session: SESSION_ID }).catch(()=>{})
         const incoming = await waitResponse(chatId, sent)
@@ -364,7 +368,9 @@ async function processFlowForChat(flowJson, chatId, webhook, id) {
         af.nodeId = nodeId; af.vars = ctx.vars; activeFlows.set(chatId, af)
         continue
       } else {
-        await enqueue(async () => await client.sendMessage(chatId, text))
+        await enqueue(async () => await client.sendMessage(chatId, text, {
+        sendSeen: false
+    }))
         nodeId = null
         break
       }
@@ -486,7 +492,9 @@ app.post('/enviar-mensaje', upload.none(), async (req, res) => {
     }
 
     const result = await enqueue(async () => {
-      const message = await client.sendMessage(chatId, texto)
+      const message = await client.sendMessage(chatId, texto,  {
+        sendSeen: false
+    });
       return message
     })
 
@@ -514,7 +522,7 @@ app.post('/enviar-archivo', upload.single('archivo'), async (req, res) => {
       const mimeType = mime.lookup(originalName) || 'application/octet-stream'
       const base64 = fs.readFileSync(filePath, 'base64')
       const media = new MessageMedia(mimeType, base64, originalName)
-      const message = await client.sendMessage(`${numero}@c.us`, media, { caption: texto })
+      const message = await client.sendMessage(`${numero}@c.us`, media, { caption: texto, sendSeen: false })
       return message
     })
     try { fs.unlinkSync(filePath) } catch (e) { }
@@ -537,7 +545,9 @@ app.post('/enviar-ubicacion', upload.none(), async (req, res) => {
     if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
     const result = await enqueue(async () => {
       let location = `https://maps.google.com/maps?q=${lat},${lon}&z=17&hl=en`
-      const message = await client.sendMessage(`${numero}@c.us`, location)
+      const message = await client.sendMessage(`${numero}@c.us`, location, {
+        sendSeen: false
+    });
       return message
     })
     const fechaLocal = formatFechaFromMessage(result)
@@ -557,7 +567,9 @@ app.post('/esperar', upload.none(), async (req, res) => {
   if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
   try {
     if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
-    const message = await enqueue(async () => { return await client.sendMessage(chatId, texto) })
+    const message = await enqueue(async () => { return await client.sendMessage(chatId, texto, {
+        sendSeen: false
+    }); })
     const idMensaje = message.id.id
     esperas.set(chatId, idMensaje)
     resolvers.set(idMensaje, [])
