@@ -25,7 +25,7 @@ const SESSION_ID = process.env.SESSION_ID || 'default'
 
 let client = null
 let clientReady = false
-
+let restarting = false
 const esperas = new Map()
 const respuestas = new Map()
 const resolvers = new Map()
@@ -181,8 +181,13 @@ const createClient = (sessionId) => {
 
   newClient.on('message', async (message) => {
     console.log(`[${sessionId}] mensaje de ${message.from}: ${String(message.body || '').slice(0,100)}`)
-    const chatId = message.from
+    const contact = await message.getContact();
+    const chatId = contact.number
+    console.log("LLEGO MENSAJE ", message)
+    console.log("ESPERAS: " , esperas)
+    console.log("CHAT Id", chatId)
     if (esperas.has(chatId)) {
+      console.log("POSITVO")
       const idMensaje = esperas.get(chatId)
       respuestas.set(idMensaje, message)
       esperas.delete(chatId)
@@ -255,6 +260,51 @@ function attemptReconnect(sessionId) {
   tryOnce()
 }
 
+
+function restartProcess(reason) {
+  if (restarting) return
+  restarting = true
+
+  console.error('♻ Reiniciando proceso:', reason)
+
+  setTimeout(() => {
+    process.exit(1) // PM2 reinicia
+  }, 1000)
+}
+
+
+setInterval(async () => {
+  console.log('🕐 Chequeando estado de WhatsApp...')
+
+  try {
+    if (!clientReady) {
+      console.warn('❌ Cliente NO ready')
+      restartProcess('clientReady=false')
+      return
+    }
+
+    // Check real contra WhatsApp Web
+    const state = await client.getState()
+
+    if (state !== 'CONNECTED') {
+      console.warn('❌ Estado inválido:', state)
+      restartProcess(`state=${state}`)
+      return
+    }
+
+    console.log('✅ WhatsApp OK')
+
+  } catch (err) {
+    console.error('❌ Error chequeando estado:', err.message)
+
+    if (err.message?.includes('Session closed')) {
+      restartProcess('Session closed')
+    }
+  }
+
+}, 60 * 60 * 1000) // 1 hora
+
+
 // --------------------------- INICIALIZACIÓN ---------------------------
 let serverListening = false
 if (!serverListening) {
@@ -292,13 +342,14 @@ function loadFlowByName(flowName) {
   try { return JSON.parse(raw) } catch (e) { throw new Error('Flow JSON inválido: ' + e.message) }
 }
 
-async function waitResponse(chatId, sent) {
+async function waitResponse(numero, sent) {
   const idMensaje = sent.id.id
-  esperas.set(chatId, idMensaje)
+  
+  esperas.set(numero, idMensaje)
   resolvers.set(idMensaje, [])
 
   const timeoutId = setTimeout(() => {
-    if (esperas.get(chatId) === idMensaje && !respuestas.has(idMensaje)) {
+    if (esperas.get(numero) === idMensaje && !respuestas.has(idMensaje)) {
       esperas.delete(chatId)
       resolvers.get(idMensaje)?.forEach(r => r(null))
       resolvers.delete(idMensaje)
@@ -315,11 +366,12 @@ async function waitResponse(chatId, sent) {
   return respuesta.message
 }
 
-async function processFlowForChat(flowJson, chatId, webhook, id) {
+async function processFlowForChat(flowJson, numero, webhook, id) {
   const flowName = flowJson.id || 'flow'
   const ctx = { vars: {} }
+  const chatId = `${numero}@c.us`
   let nodeId = flowJson.start
-  activeFlows.set(chatId, { flowName, flowJson, nodeId, vars: ctx.vars, webhook, running: true })
+  activeFlows.set(numero, { flowName, flowJson, nodeId, vars: ctx.vars, webhook, running: true })
 
   try {
     while (nodeId) {
@@ -337,7 +389,7 @@ async function processFlowForChat(flowJson, chatId, webhook, id) {
         }
         const nextMap = node.next || {}
         const nextNode = nextMap.default || nextMap.any || null
-        if (nextNode) { nodeId = nextNode; const af = activeFlows.get(chatId) || {}; af.nodeId = nodeId; af.vars = ctx.vars; activeFlows.set(chatId, af); continue } else { nodeId = null; break }
+        if (nextNode) { nodeId = nextNode; const af = activeFlows.get(numero) || {}; af.nodeId = nodeId; af.vars = ctx.vars; activeFlows.set(chatId, af); continue } else { nodeId = null; break }
 
       } else if (node.type === 'input') {
         const sent = await enqueue(async () => { return await client.sendMessage(chatId, text, {
@@ -345,14 +397,14 @@ async function processFlowForChat(flowJson, chatId, webhook, id) {
     }); })
         const fechaLocalSent = formatFechaFromMessage(sent)
         if (webhook) axios.post(webhook, { event: 'input', flow: flowName, id: sent.id.id, from: sent._data.from.user, to: sent._data.to.user, time: fechaLocalSent, nodeId, id: id, session: SESSION_ID }).catch(()=>{})
-        const incoming = await waitResponse(chatId, sent)
+        const incoming = await waitResponse(numero, sent)
         if (!incoming) { if (webhook) axios.post(webhook, { event: 'error', flow: flowName, nodeId, id: id, error: 'timeout or no response' }).catch(()=>{}); throw new Error('Timeout esperando respuesta en nodo: ' + nodeId) }
         ctx.vars.last_input = (incoming.body || incoming).toString().trim()
         const fechaLocalIncoming = formatFechaFromMessage(incoming)
         if (webhook) axios.post(webhook, { event: 'incoming_message', flow: flowName, id: incoming.id.id, from: incoming.from, to: incoming.to, time: fechaLocalIncoming, message: ctx.vars.last_input, id: id, session: SESSION_ID }).catch(()=>{})
         const nextMap = node.next || {}
         const nextNode = nextMap.any || nextMap.default || Object.values(nextMap)[0]
-        if (nextNode) { nodeId = nextNode; const af = activeFlows.get(chatId) || {}; af.nodeId = nodeId; af.vars = ctx.vars; activeFlows.set(chatId, af); continue } else { nodeId = null; break }
+        if (nextNode) { nodeId = nextNode; const af = activeFlows.get(numero) || {}; af.nodeId = nodeId; af.vars = ctx.vars; activeFlows.set(chatId, af); continue } else { nodeId = null; break }
 
       } else if (node.type === 'router') {
         const rawLast = (ctx.vars.last_input || '').toString().trim();
@@ -364,8 +416,8 @@ async function processFlowForChat(flowJson, chatId, webhook, id) {
         if (!target) { if (routes[rawLast]) target = routes[rawLast]; else if (routes[rawLast.toLowerCase()]) target = routes[rawLast.toLowerCase()]; else target = node.default || null }
         if (!target) throw new Error('Router sin target definido para input: ' + rawLast)
         nodeId = target
-        const af = activeFlows.get(chatId) || {}
-        af.nodeId = nodeId; af.vars = ctx.vars; activeFlows.set(chatId, af)
+        const af = activeFlows.get(numero) || {}
+        af.nodeId = nodeId; af.vars = ctx.vars; activeFlows.set(numero, af)
         continue
       } else {
         await enqueue(async () => await client.sendMessage(chatId, text, {
@@ -376,14 +428,14 @@ async function processFlowForChat(flowJson, chatId, webhook, id) {
       }
     }
 
-    if (webhook) axios.post(webhook, { event: 'flow_finished', flow: flowName, id: id, chatId, session: SESSION_ID }).catch(()=>{})
+    if (webhook) axios.post(webhook, { event: 'flow_finished', flow: flowName, id: id, numero, session: SESSION_ID }).catch(()=>{})
     return { ok: true }
   } catch (err) {
     console.error('[processFlowForChat] error:', err)
-    if (webhook) axios.post(webhook, { event: 'error', flow: flowName, chatId, id: id, session: SESSION_ID, error: String(err?.message || err) }, ).catch(()=>{})
+    if (webhook) axios.post(webhook, { event: 'error', flow: flowName, numero, id: id, session: SESSION_ID, error: String(err?.message || err) }, ).catch(()=>{})
     return { ok: false, error: String(err?.message || err) }
   } finally {
-    activeFlows.delete(chatId)
+    activeFlows.delete(numero)
   }
 }
 
@@ -455,8 +507,8 @@ app.post('/start_flow', upload.none(), async (req, res) => {
     let flowJson
     try { flowJson = loadFlowByName(flowName) } catch (e) { return res.status(404).json({ error: 'Flow no encontrado o inválido: ' + e.message }) }
     const id = generateId20()
-    processFlowForChat(flowJson, chatId, endpoint, id)
-    return res.json({ status: 'started', flow: flowJson.id || flowName, to: chatId, id: id, session: SESSION_ID })
+    processFlowForChat(flowJson, numero, endpoint, id)
+    return res.json({ status: 'started', flow: flowJson.id || flowName, to: numero, id: id, session: SESSION_ID })
   } catch (err) {
     console.error('❌ Error en /start_flow:', err)
     return res.status(500).json({ error: 'Error interno' })
