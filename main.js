@@ -116,7 +116,7 @@ const createClient = (sessionId) => {
   })
 
   newClient.on('qr', async (qr) => {
-    const sid = SESSION_ID
+    const sid = sessionId
     console.log(`📷 [${sid}] Evento QR recibido. Generando terminal + archivo...`)
     try {
       // imprimir en terminal
@@ -173,11 +173,19 @@ const createClient = (sessionId) => {
     console.error(`❌ Fallo de autenticación para ${sessionId}:`, msg || '(sin msg)')
   })
 
-  newClient.on('disconnected', reason => {
+  newClient.on('disconnected', async reason => {
     console.warn(`⚠️ ${sessionId} desconectado: ${reason}`)
     clientReady = false
+
+    try {
+      await newClient.destroy()
+    } catch (e) {
+      console.warn('destroy error:', e)
+    }
+
     attemptReconnect(sessionId)
   })
+
 
   newClient.on('message', async (message) => {
     console.log(`[${sessionId}] mensaje de ${message.from}: ${String(message.body || '').slice(0,100)}`)
