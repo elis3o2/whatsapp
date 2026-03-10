@@ -107,30 +107,109 @@ function waitForClientReady(timeout = 120000) {
 // --------------------------- CREAR CLIENTE ---------------------------
 const createClient = (sessionId) => {
   console.log(`🟡 Creando cliente para sessionId=${sessionId}`)
+
+  // FLAGS recomendados para reducir memoria/CPU
+  const puppeteerArgs = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-accelerated-2d-canvas',
+    '--disable-gpu',
+    '--disable-software-rasterizer',
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--disable-background-timer-throttling',
+    '--disable-breakpad',
+    '--disable-client-side-phishing-detection',
+    '--disable-default-apps',
+    '--disable-sync',
+    '--disable-translate',
+    '--disable-notifications',
+    '--disable-popup-blocking',
+    '--disable-infobars',
+    '--disable-hang-monitor',
+    '--disable-logging',
+    '--no-zygote',
+    '--no-first-run',
+    '--mute-audio',
+    '--hide-scrollbars',
+    '--disk-cache-size=0',
+    '--media-cache-size=0',
+    '--disable-cache',
+    '--headless=new',
+    '--remote-debugging-port=0',
+    '--enable-automation',
+    '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36'
+    // '--single-process' // opcional, puede causar inestabilidad en algunas plataformas
+  ]
+
   const newClient = new Client({
     authStrategy: new LocalAuth({ clientId: sessionId }),
     puppeteer: {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+      args: puppeteerArgs,
+      defaultViewport: { width: 800, height: 600 }
+      // si quieres forzar binario custom: executablePath: '/usr/bin/chromium'
     }
   })
 
+  // === Bloqueo de recursos pesados en cuanto la página esté disponible ===
+  // (reduce imágenes, medios y fonts que consumen mucha memoria)
+  const setupPageOptimizations = async () => {
+    try {
+      // En whatsapp-web.js la página queda disponible en newClient.pupPage
+      const page = newClient.pupPage
+      if (!page) return
+
+      // Evitar que el navegador cachee recursos
+      try { await page.setCacheEnabled(false) } catch (e) {}
+
+      // Intercepción de requests para bloquear recursos innecesarios
+      try {
+        await page.setRequestInterception(true)
+        page.on('request', (req) => {
+          const type = req.resourceType()
+          // bloqueamos imágenes, medios y fuentes; dejar JS/XHR/CSS para que UI funcione
+          if (type === 'image' || type === 'media' || type === 'font') {
+            req.abort()
+          } else {
+            req.continue()
+          }
+        })
+      } catch (e) {
+        console.warn(`[${sessionId}] request interception fallback:`, e.message || e)
+      }
+
+      // reducir tamaño de viewport (menos render, menos memoria)
+      try { await page.setViewport({ width: 800, height: 600 }) } catch (e) {}
+
+      // limpiar caches puntualmente (por si quedaron datos viejos)
+      try {
+        await page.evaluate(() => {
+          try { caches.keys().then(keys => keys.forEach(k => caches.delete(k))) } catch (e) {}
+          try { localStorage.clear() } catch (e) {}
+          try { sessionStorage.clear() } catch (e) {}
+        })
+      } catch (e) {}
+
+      console.log(`⚙️ [${sessionId}] optimizaciones de página aplicadas (bloqueo imágenes/medios/fuentes, cache off)`)
+    } catch (err) {
+      console.warn(`⚠️ [${sessionId}] no se pudieron aplicar optimizaciones de página:`, err.message || err)
+    }
+  }
+
+  // eventos (mantengo tu lógica original)
   newClient.on('qr', async (qr) => {
     const sid = sessionId
     console.log(`📷 [${sid}] Evento QR recibido. Generando terminal + archivo...`)
     try {
-      // imprimir en terminal
       qrcodeTerminal.generate(qr, { small: true })
-      // asegurar carpeta ./qr
       const qrDir = path.join(__dirname, 'qr')
       if (!fs.existsSync(qrDir)) fs.mkdirSync(qrDir, { recursive: true })
-      // ruta PNG: ./qr/<SESSION_ID>.png
       const pngPath = path.join(qrDir, `${sid}.png`)
       await QRCode.toFile(pngPath, qr)
-      // guardar también en memoria como dataURL (clave: SESSION_ID)
       const dataUrl = await QRCode.toDataURL(qr)
       qrStore.set(sid, dataUrl)
-
       console.log(`✅ QR guardado en ${pngPath} y en memoria (qrStore). Servir en /qr (sesión: ${sid})`)
     } catch (err) {
       console.error(`❌ Error generando QR para ${sid}:`, err)
@@ -149,7 +228,6 @@ const createClient = (sessionId) => {
         console.warn(`⚠️ [${sessionId}] JSON.stringify falló, usando util.inspect como fallback:`, jsonErr)
         sessionStr = util.inspect(session, { depth: null })
       }
-
       const sessionPath = `./session-${sessionId}.json`
       const sessionDir = require('path').dirname(sessionPath)
       if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true })
@@ -164,9 +242,11 @@ const createClient = (sessionId) => {
     console.log(`[${sessionId}] loading_screen ${percent}% — ${message}`)
   })
 
-  newClient.on('ready', () => {
+  newClient.on('ready', async () => {
     console.log(`✅ Cliente ${sessionId} listo (ready)`)
     clientReady = true
+    // Aplicar optimizaciones a la página una vez esté lista
+    await setupPageOptimizations()
   })
 
   newClient.on('auth_failure', (msg) => {
@@ -176,26 +256,19 @@ const createClient = (sessionId) => {
   newClient.on('disconnected', async reason => {
     console.warn(`⚠️ ${sessionId} desconectado: ${reason}`)
     clientReady = false
-
     try {
       await newClient.destroy()
     } catch (e) {
       console.warn('destroy error:', e)
     }
-
     attemptReconnect(sessionId)
   })
-
 
   newClient.on('message', async (message) => {
     console.log(`[${sessionId}] mensaje de ${message.from}: ${String(message.body || '').slice(0,100)}`)
     const contact = await message.getContact();
     const chatId = contact.number
-    console.log("LLEGO MENSAJE ", message)
-    console.log("ESPERAS: " , esperas)
-    console.log("CHAT Id", chatId)
     if (esperas.has(chatId)) {
-      console.log("POSITVO")
       const idMensaje = esperas.get(chatId)
       respuestas.set(idMensaje, message)
       esperas.delete(chatId)
@@ -460,7 +533,7 @@ app.get('/qr', async (req, res) => {
     if (fs.existsSync(pngPath)) {
       return res.sendFile(require('path').resolve(pngPath))
     }
-    return res.status(404).json({ error: 'QR no encontrado para la sesión configurada' })
+    return res.status(400).json({ error: 'QR no encontrado para la sesión configurada' })
   
   } catch (err) {
     console.error('Error en /qr:', err)
@@ -472,7 +545,7 @@ app.get('/status', async (req, res) => {
     try {
 
         if (!client) {
-            return res.status(404).json({
+            return res.status(400).json({
                 error: `Client for global session '${SESSION_ID}' not found`
             });
         }
@@ -504,7 +577,7 @@ app.get('/status', async (req, res) => {
 app.post('/start_flow', upload.none(), async (req, res) => {
   const { flowName, numero, endpoint } = req.body
   if (!flowName || !numero || !endpoint) return res.status(400).json({ error: 'Faltan datos: flowName, numero, endpoint' })
-  if (numero.length !== 13) return res.status(404).json({ error: 'Número inválido' })
+  if (numero.length !== 13) return res.status(400).json({ error: 'Número inválido' })
   const chatId = `${numero}@c.us`
   const isRegistered = await client.isRegisteredUser(chatId)
   if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
@@ -513,7 +586,7 @@ app.post('/start_flow', upload.none(), async (req, res) => {
   try {
 
     let flowJson
-    try { flowJson = loadFlowByName(flowName) } catch (e) { return res.status(404).json({ error: 'Flow no encontrado o inválido: ' + e.message }) }
+    try { flowJson = loadFlowByName(flowName) } catch (e) { return res.status(400).json({ error: 'Flow no encontrado o inválido: ' + e.message }) }
     const id = generateId20()
     processFlowForChat(flowJson, numero, endpoint, id)
     return res.json({ status: 'started', flow: flowJson.id || flowName, to: numero, id: id, session: SESSION_ID })
@@ -539,16 +612,16 @@ function formatFechaFromMessage(message) {
 
 app.post('/enviar-mensaje', upload.none(), async (req, res) => {
   const { numero, texto } = req.body
-  if (!numero || !texto) return res.status(400).json({ error: 'Faltan datos' })
-  if (numero.length !== 13) return res.status(404).json({ error: 'Número inválido' })
+  if (!numero || !texto) return res.status(400).json({code: -1, error: 'Faltan datos' })
+  if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
   const chatId = `${numero}@c.us`
   const isRegistered = await client.isRegisteredUser(chatId)
-  if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
+  if (!isRegistered) return res.status(422).json({ code: -3, error: 'Número sin whatsapp' })
 
   try {
     if (!clientReady) {
       console.warn('[enviar-mensaje] client not ready, rejecting with 503')
-      return res.status(503).json({ error: 'Client not ready. Escanea QR o espera a que se conecte.' })
+      return res.status(503).json({code: -4, error: 'Client not ready.' })
     }
 
     const result = await enqueue(async () => {
@@ -559,13 +632,13 @@ app.post('/enviar-mensaje', upload.none(), async (req, res) => {
     })
 
     const fechaLocal = formatFechaFromMessage(result)
-    res.json({ id: result.id.id, ack: result.ack, from: result._data.from.user, to: result._data.to.user, time: fechaLocal, session: SESSION_ID })
+    res.json({code:0, id: result.id.id, ack: result.ack, from: result._data.from.user, to: result._data.to.user, time: fechaLocal, session: SESSION_ID })
   }
   catch (err) {
     console.error('❌ Error al enviar mensaje (queued):', err)
     // Intentamos reconectar
     attemptReconnect(SESSION_ID)
-    res.status(500).json({ error: 'Falló el envío del mensaje' })
+    res.status(500).json({code:-5, error: 'Falló el envío' })
   }
 })
 
@@ -573,11 +646,12 @@ app.post('/enviar-archivo', upload.single('archivo'), async (req, res) => {
   const { numero, texto = '' } = req.body
   const filePath = req.file?.path
   const originalName = req.file?.originalname
-  if (!numero || !filePath) return res.status(400).json({ error: 'Faltan datos' })
+  if (!numero || !filePath) return res.status(400).json({code: -1, error: 'Faltan datos' })
+  if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
   const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
-  if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
+  if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
   try {
-    if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
+    if (!clientReady) return res.status(503).json({code:-4, error: 'Client not ready' })
     const result = await enqueue(async () => {
       const mimeType = mime.lookup(originalName) || 'application/octet-stream'
       const base64 = fs.readFileSync(filePath, 'base64')
@@ -592,17 +666,18 @@ app.post('/enviar-archivo', upload.single('archivo'), async (req, res) => {
     try { fs.unlinkSync(filePath) } catch (e) { }
     console.error('❌ Error al enviar archivo (queued):', err)
     attemptReconnect(SESSION_ID)
-    res.status(500).json({ error: 'Falló el envío del archivo' })
+    res.status(500).json({code: -5, error: 'Falló el envío' })
   }
 })
 
 app.post('/enviar-ubicacion', upload.none(), async (req, res) => {
   const { numero, lat, lon } = req.body
-  if (!numero || !lat || !lon) return res.status(400).json({ error: 'Faltan datos' })
+  if (!numero || !lat || !lon) return res.status(400).json({code: -1, error: 'Faltan datos' })
+  if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
   const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
-  if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
+  if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
   try {
-    if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
+    if (!clientReady) return res.status(503).json({code: -4, error: 'Client not ready' })
     const result = await enqueue(async () => {
       let location = `https://maps.google.com/maps?q=${lat},${lon}&z=17&hl=en`
       const message = await client.sendMessage(`${numero}@c.us`, location, {
@@ -611,22 +686,23 @@ app.post('/enviar-ubicacion', upload.none(), async (req, res) => {
       return message
     })
     const fechaLocal = formatFechaFromMessage(result)
-    res.json({ id: result.id.id, status: 'OK', from: result._data.from.user, to: result._data.to.user, time: fechaLocal, session: SESSION_ID })
+    res.json({ code:0, id: result.id.id, status: 'OK', from: result._data.from.user, to: result._data.to.user, time: fechaLocal, session: SESSION_ID })
   } catch (err) {
     console.error('❌ Error al enviar ubicación (queued):', err)
     attemptReconnect(SESSION_ID)
-    res.status(500).json({ error: 'Falló el envío de la ubicación' })
+    res.status(500).json({code:-5, error: 'Falló el envío' })
   }
 })
 
 app.post('/esperar', upload.none(), async (req, res) => {
   const { numero, texto } = req.body
-  if (!numero || !texto) return res.status(400).json({ error: 'Faltan datos' })
+  if (!numero || !texto) return res.status(400).json({ code:-1, error: 'Faltan datos' })
+  if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
   const chatId = `${numero}@c.us`
   const isRegistered = await client.isRegisteredUser(chatId)
-  if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
+  if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
   try {
-    if (!clientReady) return res.status(503).json({ error: 'Client not ready' })
+    if (!clientReady) return res.status(503).json({code:-4, error: 'Client not ready' })
     const message = await enqueue(async () => { return await client.sendMessage(chatId, texto, {
         sendSeen: false
     }); })
@@ -643,10 +719,10 @@ app.post('/esperar', upload.none(), async (req, res) => {
     }, 300000)
     timeouts.set(idMensaje, timeoutId)
     const fechaLocal = formatFechaFromMessage(message)
-    res.json({ id: message.id.id, ack: message.ack, from: message._data.from.user, to: message._data.to.user, time: fechaLocal, session: SESSION_ID })
+    res.json({code:0, id: message.id.id, ack: message.ack, from: message._data.from.user, to: message._data.to.user, time: fechaLocal, session: SESSION_ID })
   } catch (err) {
     console.error('❌ Error al enviar mensaje (esperar):', err)
-    res.status(500).json({ error: 'Falló el envío del mensaje' })
+    res.status(500).json({code:-5, error: 'Falló el envío' })
   }
 })
 
@@ -666,25 +742,27 @@ app.get('/respuesta', async (req, res) => {
   return res.json({ id: message.id.id, message: message.body, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID })
 })
 
-app.get('/estado', async (req, res) => {
-  const id = req.query.id; const numero = req.query.numero
-  if (!numero || !id) return res.status(400).json({ error: 'Faltan datos' })
-  const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
-  if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
-  if (numero.length !== 13) return res.status(404).json({ error: 'Número inválido' })
-  const chat = await client.getChatById(`${numero}@c.us`)
-  const messages = await chat.fetchMessages({ limit: 50, fromMe: true })
-  const message = messages.find(m => m.id.id === id)
-  if (!message) return res.status(404).json({ error: 'Mensaje no encontrado' })
-  const fechaLocal = formatFechaFromMessage(message)
-  res.json({ id: message.id.id, ack: message.ack, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID })
-})
+app.get('/estado/:id/:numero', async (req, res) => {
+  const { id, numero } = req.params;
+  if (!numero || !id) {return res.status(400).json({ code: -1, error: 'Faltan datos' });}
+  if (numero.length !== 13) {return res.status(400).json({ code: -2, error: 'Número inválido' });}
+  const isRegistered = await client.isRegisteredUser(`${numero}@c.us`);
+  if (!isRegistered) {return res.status(422).json({ code: -3, error: 'Número sin whatsapp' });}
+  const chat = await client.getChatById(`${numero}@c.us`);
+  const messages = await chat.fetchMessages({ limit: 50, fromMe: true });
+  const message = messages.find(m => m.id.id === id);
+  if (!message) {return res.status(400).json({ code: -4, error: 'Mensaje no encontrado' });}
+  const fechaLocal = formatFechaFromMessage(message);
+
+  res.json({code: 0, id: message.id.id, ack: message.ack, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID});
+});
 
 app.get('/get_mensajes', async (req, res) => {
   const numero = req.params.numero
-  if (!numero) return res.status(400).json({ error: 'Faltan datos' })
+  if (!numero) return res.status(400).json({code:-1, error: 'Faltan datos' })
+  if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
   const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
-  if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
+  if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
   try {
     const chat = await client.getChatById(`${numero}@c.us`)
     const mensajes = await chat.fetchMessages({ limit: 20 })
@@ -692,7 +770,7 @@ app.get('/get_mensajes', async (req, res) => {
     res.json(mensajes)
   } catch (err) {
     console.error(err)
-    res.status(500).json({ error: 'Error al obtener mensajes' })
+    res.status(500).json({ code:-5, error: 'Error al obtener mensajes' })
   }
 })
 
