@@ -107,109 +107,30 @@ function waitForClientReady(timeout = 120000) {
 // --------------------------- CREAR CLIENTE ---------------------------
 const createClient = (sessionId) => {
   console.log(`🟡 Creando cliente para sessionId=${sessionId}`)
-
-  // FLAGS recomendados para reducir memoria/CPU
-  const puppeteerArgs = [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-accelerated-2d-canvas',
-    '--disable-gpu',
-    '--disable-software-rasterizer',
-    '--disable-extensions',
-    '--disable-background-networking',
-    '--disable-background-timer-throttling',
-    '--disable-breakpad',
-    '--disable-client-side-phishing-detection',
-    '--disable-default-apps',
-    '--disable-sync',
-    '--disable-translate',
-    '--disable-notifications',
-    '--disable-popup-blocking',
-    '--disable-infobars',
-    '--disable-hang-monitor',
-    '--disable-logging',
-    '--no-zygote',
-    '--no-first-run',
-    '--mute-audio',
-    '--hide-scrollbars',
-    '--disk-cache-size=0',
-    '--media-cache-size=0',
-    '--disable-cache',
-    '--headless=new',
-    '--remote-debugging-port=0',
-    '--enable-automation',
-    '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36'
-    // '--single-process' // opcional, puede causar inestabilidad en algunas plataformas
-  ]
-
   const newClient = new Client({
     authStrategy: new LocalAuth({ clientId: sessionId }),
     puppeteer: {
       headless: true,
-      args: puppeteerArgs,
-      defaultViewport: { width: 800, height: 600 }
-      // si quieres forzar binario custom: executablePath: '/usr/bin/chromium'
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
   })
 
-  // === Bloqueo de recursos pesados en cuanto la página esté disponible ===
-  // (reduce imágenes, medios y fonts que consumen mucha memoria)
-  const setupPageOptimizations = async () => {
-    try {
-      // En whatsapp-web.js la página queda disponible en newClient.pupPage
-      const page = newClient.pupPage
-      if (!page) return
-
-      // Evitar que el navegador cachee recursos
-      try { await page.setCacheEnabled(false) } catch (e) {}
-
-      // Intercepción de requests para bloquear recursos innecesarios
-      try {
-        await page.setRequestInterception(true)
-        page.on('request', (req) => {
-          const type = req.resourceType()
-          // bloqueamos imágenes, medios y fuentes; dejar JS/XHR/CSS para que UI funcione
-          if (type === 'image' || type === 'media' || type === 'font') {
-            req.abort()
-          } else {
-            req.continue()
-          }
-        })
-      } catch (e) {
-        console.warn(`[${sessionId}] request interception fallback:`, e.message || e)
-      }
-
-      // reducir tamaño de viewport (menos render, menos memoria)
-      try { await page.setViewport({ width: 800, height: 600 }) } catch (e) {}
-
-      // limpiar caches puntualmente (por si quedaron datos viejos)
-      try {
-        await page.evaluate(() => {
-          try { caches.keys().then(keys => keys.forEach(k => caches.delete(k))) } catch (e) {}
-          try { localStorage.clear() } catch (e) {}
-          try { sessionStorage.clear() } catch (e) {}
-        })
-      } catch (e) {}
-
-      console.log(`⚙️ [${sessionId}] optimizaciones de página aplicadas (bloqueo imágenes/medios/fuentes, cache off)`)
-    } catch (err) {
-      console.warn(`⚠️ [${sessionId}] no se pudieron aplicar optimizaciones de página:`, err.message || err)
-    }
-  }
-
-  // eventos (mantengo tu lógica original)
   newClient.on('qr', async (qr) => {
     const sid = sessionId
     console.log(`📷 [${sid}] Evento QR recibido. Generando terminal + archivo...`)
     try {
+      // imprimir en terminal
       qrcodeTerminal.generate(qr, { small: true })
+      // asegurar carpeta ./qr
       const qrDir = path.join(__dirname, 'qr')
       if (!fs.existsSync(qrDir)) fs.mkdirSync(qrDir, { recursive: true })
+      // ruta PNG: ./qr/<SESSION_ID>.png
       const pngPath = path.join(qrDir, `${sid}.png`)
       await QRCode.toFile(pngPath, qr)
+      // guardar también en memoria como dataURL (clave: SESSION_ID)
       const dataUrl = await QRCode.toDataURL(qr)
       qrStore.set(sid, dataUrl)
+
       console.log(`✅ QR guardado en ${pngPath} y en memoria (qrStore). Servir en /qr (sesión: ${sid})`)
     } catch (err) {
       console.error(`❌ Error generando QR para ${sid}:`, err)
@@ -228,6 +149,7 @@ const createClient = (sessionId) => {
         console.warn(`⚠️ [${sessionId}] JSON.stringify falló, usando util.inspect como fallback:`, jsonErr)
         sessionStr = util.inspect(session, { depth: null })
       }
+
       const sessionPath = `./session-${sessionId}.json`
       const sessionDir = require('path').dirname(sessionPath)
       if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true })
@@ -242,11 +164,9 @@ const createClient = (sessionId) => {
     console.log(`[${sessionId}] loading_screen ${percent}% — ${message}`)
   })
 
-  newClient.on('ready', async () => {
+  newClient.on('ready', () => {
     console.log(`✅ Cliente ${sessionId} listo (ready)`)
     clientReady = true
-    // Aplicar optimizaciones a la página una vez esté lista
-    await setupPageOptimizations()
   })
 
   newClient.on('auth_failure', (msg) => {
@@ -256,31 +176,38 @@ const createClient = (sessionId) => {
   newClient.on('disconnected', async reason => {
     console.warn(`⚠️ ${sessionId} desconectado: ${reason}`)
     clientReady = false
+
     try {
       await newClient.destroy()
     } catch (e) {
       console.warn('destroy error:', e)
     }
+
     attemptReconnect(sessionId)
   })
 
+
   newClient.on('message', async (message) => {
     console.log(`[${sessionId}] mensaje de ${message.from}: ${String(message.body || '').slice(0,100)}`)
-    const contact = await message.getContact();
-    const chatId = contact.number
-    if (esperas.has(chatId)) {
-      const idMensaje = esperas.get(chatId)
-      respuestas.set(idMensaje, message)
-      esperas.delete(chatId)
-      if (resolvers.has(idMensaje)) {
-        resolvers.get(idMensaje).forEach(r => r({ message }))
-        resolvers.delete(idMensaje)
-      }
-      if (timeouts.has(idMensaje)) {
-        clearTimeout(timeouts.get(idMensaje))
-        timeouts.delete(idMensaje)
-      }
-    }
+  //  const contact = await message.getContact();
+  //  const chatId = contact.number
+  //  console.log("LLEGO MENSAJE ", message)
+  //  console.log("ESPERAS: " , esperas)
+  //  console.log("CHAT Id", chatId)
+  //  if (esperas.has(chatId)) {
+  //    console.log("POSITVO")
+  //    const idMensaje = esperas.get(chatId)
+  //    respuestas.set(idMensaje, message)
+  //    esperas.delete(chatId)
+  //    if (resolvers.has(idMensaje)) {
+  //      resolvers.get(idMensaje).forEach(r => r({ message }))
+  //      resolvers.delete(idMensaje)
+  //    }
+  //    if (timeouts.has(idMensaje)) {
+  //      clearTimeout(timeouts.get(idMensaje))
+  //      timeouts.delete(idMensaje)
+  //    }
+  //  }
   })
 
   newClient.on('change_state', (state) => {
