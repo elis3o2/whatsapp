@@ -305,9 +305,8 @@ setInterval(async () => {
   } catch (err) {
     console.error('❌ Error chequeando estado:', err.message)
 
-    if (err.message?.includes('Session closed')) {
-      restartProcess('Session closed')
-    }
+    restartProcess(err.message)
+    
   }
 
 }, 60 * 60 * 1000) // 1 hora
