@@ -505,9 +505,9 @@ app.post('/start_flow', upload.none(), async (req, res) => {
   if (!flowName || !numero || !endpoint) return res.status(400).json({ error: 'Faltan datos: flowName, numero, endpoint' })
   if (numero.length !== 13) return res.status(400).json({ error: 'Número inválido' })
   const chatId = `${numero}@c.us`
+
   const isRegistered = await client.isRegisteredUser(chatId)
   if (!isRegistered) return res.status(422).json({ error: 'Número sin whatsapp' })
-
 
   try {
 
@@ -541,14 +541,15 @@ app.post('/enviar-mensaje', upload.none(), async (req, res) => {
   if (!numero || !texto) return res.status(400).json({code: -1, error: 'Faltan datos' })
   if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
   const chatId = `${numero}@c.us`
-  const isRegistered = await client.isRegisteredUser(chatId)
-  if (!isRegistered) return res.status(422).json({ code: -3, error: 'Número sin whatsapp' })
 
   try {
     if (!clientReady) {
       console.warn('[enviar-mensaje] client not ready, rejecting with 503')
       return res.status(503).json({code: -4, error: 'Client not ready.' })
     }
+
+    const isRegistered = await client.isRegisteredUser(chatId)
+    if (!isRegistered) return res.status(422).json({ code: -3, error: 'Número sin whatsapp' })
 
     const result = await enqueue(async () => {
       const message = await client.sendMessage(chatId, texto,  {
@@ -574,10 +575,12 @@ app.post('/enviar-archivo', upload.single('archivo'), async (req, res) => {
   const originalName = req.file?.originalname
   if (!numero || !filePath) return res.status(400).json({code: -1, error: 'Faltan datos' })
   if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
-  const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
-  if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
   try {
     if (!clientReady) return res.status(503).json({code:-4, error: 'Client not ready' })
+    
+    const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
+    if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
+    
     const result = await enqueue(async () => {
       const mimeType = mime.lookup(originalName) || 'application/octet-stream'
       const base64 = fs.readFileSync(filePath, 'base64')
@@ -600,10 +603,13 @@ app.post('/enviar-ubicacion', upload.none(), async (req, res) => {
   const { numero, lat, lon } = req.body
   if (!numero || !lat || !lon) return res.status(400).json({code: -1, error: 'Faltan datos' })
   if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
-  const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
-  if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
+
   try {
     if (!clientReady) return res.status(503).json({code: -4, error: 'Client not ready' })
+    
+    const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
+    if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
+
     const result = await enqueue(async () => {
       let location = `https://maps.google.com/maps?q=${lat},${lon}&z=17&hl=en`
       const message = await client.sendMessage(`${numero}@c.us`, location, {
@@ -625,13 +631,17 @@ app.post('/esperar', upload.none(), async (req, res) => {
   if (!numero || !texto) return res.status(400).json({ code:-1, error: 'Faltan datos' })
   if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
   const chatId = `${numero}@c.us`
-  const isRegistered = await client.isRegisteredUser(chatId)
-  if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
+  
   try {
     if (!clientReady) return res.status(503).json({code:-4, error: 'Client not ready' })
+    
+    const isRegistered = await client.isRegisteredUser(chatId)
+    if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
+    
     const message = await enqueue(async () => { return await client.sendMessage(chatId, texto, {
         sendSeen: false
     }); })
+    
     const idMensaje = message.id.id
     esperas.set(chatId, idMensaje)
     resolvers.set(idMensaje, [])
@@ -659,9 +669,11 @@ app.get('/respuesta', async (req, res) => {
     const fechaLocal = formatFechaFromMessage(message)
     return res.json({ id: message.id.id, message: message.body, from: message._data.from.user, to: message._data.to.user, time: fechaLocal, session: SESSION_ID })
   }
+  
   const estaEsperando = Array.from(esperas.entries()).some(([, v]) => v === idMensaje)
   if (!estaEsperando) return res.status(404).json({ error: 'Respuesta no encontrada' })
-  const respuesta = await new Promise(resolve => { resolvers.get(idMensaje).push(resolve) })
+  
+    const respuesta = await new Promise(resolve => { resolvers.get(idMensaje).push(resolve) })
   if (!respuesta) return res.status(404).json({ error: 'Tiempo agotado' })
   const { message } = respuesta
   const fechaLocal = formatFechaFromMessage(message)
@@ -672,8 +684,10 @@ app.get('/estado/:id/:numero', async (req, res) => {
   const { id, numero } = req.params;
   if (!numero || !id) {return res.status(400).json({ code: -1, error: 'Faltan datos' });}
   if (numero.length !== 13) {return res.status(400).json({ code: -2, error: 'Número inválido' });}
+  
   const isRegistered = await client.isRegisteredUser(`${numero}@c.us`);
   if (!isRegistered) {return res.status(422).json({ code: -3, error: 'Número sin whatsapp' });}
+  
   const chat = await client.getChatById(`${numero}@c.us`);
   const messages = await chat.fetchMessages({ limit: 50, fromMe: true });
   const message = messages.find(m => m.id.id === id);
