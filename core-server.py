@@ -62,49 +62,14 @@ async def enviar_mensaje(payload: EnviarMensajeModel = Body(...), request: Reque
     )
 
 
-@app.post(
-    "/enviar-archivo",
-    response_model=CommonSuccessModel,
-    tags=["mensajeria"],
-    responses=COMMON_RESPONSES_POST
-)
-async def enviar_archivo(
-    numero: str = Form(...),
-    texto: Optional[str] = Form(None),
-    session: Optional[str] = Form(None),
-    archivo: Optional[UploadFile] = File(None),
-    request: Request = None
-):
-    # tu código existente (sin cambios)
-    form = await request.form()
-
-    files_payload = {}
-    for k, v in form.multi_items():
-        if isinstance(v, UploadFile):
-            content = await v.read()
-            files_payload[k] = (
-                v.filename,
-                content,
-                v.content_type
-            )
-
-    form_fields = {}
-    for k, v in form.items():
-        if not isinstance(v, UploadFile):
-            form_fields[k] = v
-
-    if form_fields and not files_payload:
-        data_bytes = urllib.parse.urlencode(form_fields).encode('utf-8')
-    elif form_fields and files_payload:
-        data_bytes = None
-        files_payload['__form_fields__'] = {"form_fields": form_fields}
-    else:
-        data_bytes = await request.body()
+@app.post("/enviar-archivo")
+async def enviar_archivo(request: Request):
 
     headers = dict(request.headers)
     params = dict(request.query_params)
 
-    preferred_session = session or form_fields.get("session") or params.get("session")
+    body = await request.body()
+    preferred_session = params.get("session")
 
     start_ports = build_ports_priority_queue(preferred_session)
 
@@ -113,11 +78,10 @@ async def enviar_archivo(
         path=request.url.path,
         headers=headers,
         params=params,
-        data_bytes=data_bytes,
-        files_for_requests=files_payload,
+        data_bytes=body,
+        files_for_requests=None,
         start_ports=start_ports
     )
-
 
 
 @app.post(
