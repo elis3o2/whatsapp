@@ -82,11 +82,11 @@ async def enviar_archivo(
     for k, v in form.multi_items():
         if isinstance(v, UploadFile):
             content = await v.read()
-            files_payload[k] = {
-                "filename": v.filename,
-                "content": content,
-                "content_type": v.content_type
-            }
+            files_payload[k] = (
+                v.filename,
+                content,
+                v.content_type
+            )
 
     form_fields = {}
     for k, v in form.items():
