@@ -680,6 +680,7 @@ app.get('/respuesta', async (req, res) => {
   return res.json({ id: message.id.id, message: message.body, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID })
 })
 
+
 app.get('/estado/:id/:numero', async (req, res) => {
   const { id, numero } = req.params;
 
@@ -701,20 +702,16 @@ app.get('/estado/:id/:numero', async (req, res) => {
 
     let message;
 
+    const serializedId = `true_${chatId}_${id}`;
+
     try {
-      message = await client.getMessageById(id);
+      message = await client.getMessageById(serializedId);
     } catch (err) {
       console.error('Error getMessageById:', err.message);
       return res.status(400).json({ code: -4, error: 'Mensaje no encontrado' });
     }
 
-    // Validación extra (importante)
-    if (!message) {
-      return res.status(400).json({ code: -4, error: 'Mensaje no encontrado' });
-    }
-
     const fechaLocal = formatFechaFromMessage(message);
-
     return res.json({code: 0, id: message.id.id, ack: message.ack, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID});
 
   } catch (err) {
@@ -723,6 +720,8 @@ app.get('/estado/:id/:numero', async (req, res) => {
     return res.status(500).json({code: -5, error: 'Error interno', detail: err.message});
   }
 });
+
+
 app.get('/get_mensajes', async (req, res) => {
   const numero = req.params.numero
   if (!numero) return res.status(400).json({code:-1, error: 'Faltan datos' })
