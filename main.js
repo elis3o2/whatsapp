@@ -700,15 +700,25 @@ app.get('/estado/:id/:numero', async (req, res) => {
       return res.status(422).json({ code: -3, error: 'Número sin whatsapp' });
     }
 
-    let message;
+    let message = null;
 
-    const serializedId = `true_${chatId}_${id}`;
+    // Probamos ambas variantes
+    const serializedTrue = `true_${chatId}_${id}`;
+    const serializedFalse = `false_${chatId}_${id}`;
 
     try {
-      message = await client.getMessageById(serializedId);
-    } catch (err) {
-      console.error('Error getMessageById:', err.message);
-      return res.status(400).json({ code: -4, error: 'Mensaje no encontrado' });
+      message = await client.getMessageById(serializedTrue);
+    } catch {}
+
+    if (!message) {
+      try {
+        message = await client.getMessageById(serializedFalse);
+      } catch {}
+    }
+
+    // 👇 ESTA VALIDACIÓN TE FALTABA
+    if (!message) {
+      return res.status(400).json({code: -4, error: 'Mensaje no encontrado'});
     }
 
     const fechaLocal = formatFechaFromMessage(message);
