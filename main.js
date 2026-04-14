@@ -682,21 +682,47 @@ app.get('/respuesta', async (req, res) => {
 
 app.get('/estado/:id/:numero', async (req, res) => {
   const { id, numero } = req.params;
-  if (!numero || !id) {return res.status(400).json({ code: -1, error: 'Faltan datos' });}
-  if (numero.length !== 13) {return res.status(400).json({ code: -2, error: 'Número inválido' });}
-  
-  const isRegistered = await client.isRegisteredUser(`${numero}@c.us`);
-  if (!isRegistered) {return res.status(422).json({ code: -3, error: 'Número sin whatsapp' });}
-  
-  const chat = await client.getChatById(`${numero}@c.us`);
-  const messages = await chat.fetchMessages({ limit: 50, fromMe: true });
-  const message = messages.find(m => m.id.id === id);
-  if (!message) {return res.status(400).json({ code: -4, error: 'Mensaje no encontrado' });}
-  const fechaLocal = formatFechaFromMessage(message);
 
-  res.json({code: 0, id: message.id.id, ack: message.ack, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID});
+  if (!numero || !id) {
+    return res.status(400).json({ code: -1, error: 'Faltan datos' });
+  }
+
+  if (numero.length !== 13) {
+    return res.status(400).json({ code: -2, error: 'Número inválido' });
+  }
+
+  try {
+    const chatId = `${numero}@c.us`;
+
+    const isRegistered = await client.isRegisteredUser(chatId);
+    if (!isRegistered) {
+      return res.status(422).json({ code: -3, error: 'Número sin whatsapp' });
+    }
+
+    let message;
+
+    try {
+      message = await client.getMessageById(id);
+    } catch (err) {
+      console.error('Error getMessageById:', err.message);
+      return res.status(400).json({ code: -4, error: 'Mensaje no encontrado' });
+    }
+
+    // Validación extra (importante)
+    if (!message) {
+      return res.status(400).json({ code: -4, error: 'Mensaje no encontrado' });
+    }
+
+    const fechaLocal = formatFechaFromMessage(message);
+
+    return res.json({code: 0, id: message.id.id, ack: message.ack, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID});
+
+  } catch (err) {
+    console.error('Error general:', err);
+
+    return res.status(500).json({code: -5, error: 'Error interno', detail: err.message});
+  }
 });
-
 app.get('/get_mensajes', async (req, res) => {
   const numero = req.params.numero
   if (!numero) return res.status(400).json({code:-1, error: 'Faltan datos' })
