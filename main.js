@@ -680,57 +680,57 @@ app.get('/respuesta', async (req, res) => {
   return res.json({ id: message.id.id, message: message.body, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID })
 })
 
-
 app.get('/estado/:id/:numero', async (req, res) => {
   const { id, numero } = req.params;
-
   if (!numero || !id) {
     return res.status(400).json({ code: -1, error: 'Faltan datos' });
   }
-
   if (numero.length !== 13) {
     return res.status(400).json({ code: -2, error: 'Número inválido' });
   }
 
+  // Verificar registro usando getNumberId en lugar de isRegisteredUser
+  // (más robusto ante el cambio @lid)
+  let contactId;
   try {
-    const chatId = `${numero}@c.us`;
-
-    const isRegistered = await client.isRegisteredUser(chatId);
-    if (!isRegistered) {
+    contactId = await client.getNumberId(numero);
+    if (!contactId) {
       return res.status(422).json({ code: -3, error: 'Número sin whatsapp' });
     }
-
-    let message = null;
-
-    // Probamos ambas variantes
-    const serializedTrue = `true_${chatId}_${id}`;
-    const serializedFalse = `false_${chatId}_${id}`;
-
-    try {
-      message = await client.getMessageById(serializedTrue);
-    } catch {}
-
-    if (!message) {
-      try {
-        message = await client.getMessageById(serializedFalse);
-      } catch {}
-    }
-
-    // 👇 ESTA VALIDACIÓN TE FALTABA
-    if (!message) {
-      return res.status(400).json({code: -4, error: 'Mensaje no encontrado'});
-    }
-
-    const fechaLocal = formatFechaFromMessage(message);
-    return res.json({code: 0, id: message.id.id, ack: message.ack, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID});
-
-  } catch (err) {
-    console.error('Error general:', err);
-
-    return res.status(500).json({code: -5, error: 'Error interno', detail: err.message});
+  } catch (e) {
+    return res.status(422).json({ code: -3, error: 'Número sin whatsapp' });
   }
-});
 
+  // Construir el serialized ID del mensaje (fromMe = true)
+  // Formato: true_NUMERO@c.us_MSGID  ó  true_NUMERO@lid_MSGID
+  const serializedId = `true_${contactId._serialized}_${id}`;
+
+  let message;
+  try {
+    message = await client.getMessageById(serializedId);
+  } catch (e) {
+    message = null;
+  }
+
+  if (!message) {
+    // Fallback: buscar vía fetchMessages si getMessageById falla
+    // (útil si el mensaje está fuera del caché de WhatsApp Web)
+    try {
+      const chat = await client.getChatById(contactId._serialized);
+      const messages = await chat.fetchMessages({ limit: 50, fromMe: true });
+      message = messages.find(m => m.id.id === id) || null;
+    } catch (e) {
+      message = null;
+    }
+  }
+
+  if (!message) {
+    return res.status(400).json({ code: -4, error: 'Mensaje no encontrado' });
+  }
+
+  const fechaLocal = formatFechaFromMessage(message);
+  res.json({code: 0, id: message.id.id, ack: message.ack, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID});
+});
 
 app.get('/get_mensajes', async (req, res) => {
   const numero = req.params.numero
