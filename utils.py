@@ -7,35 +7,35 @@ from responses import COMMON_ERROR_EXAMPLES
 from config import SESSIONS, SESSIONS_PORT, HOST, FORWARD_TIMEOUT, HOP_BY_HOP_HEADERS
 
 
-# round-robin state
-rr_index = 0
-rr_lock = threading.Lock()
+# ── Least-sends state ──────────────────────────────────────────────────────────
+send_count_lock = threading.Lock()
+session_send_count: dict[str, int] = {s: 0 for s in SESSIONS}
+PORT_TO_SESSION: dict[int, str] = {v: k for k, v in SESSIONS_PORT.items()}
 
 
-def get_next_rr_index() -> int:
-    global rr_index
-    with rr_lock:
-        idx = rr_index % len(SESSIONS)
-        rr_index += 1
-        return idx
+def _increment_send_count(port: int) -> None:
+    session = PORT_TO_SESSION.get(port)
+    if session:
+        with send_count_lock:
+            session_send_count[session] += 1
 
 
 def build_ports_priority_queue(preferred_session: Optional[str]) -> list[int]:
     """
-    Devuelve la lista de puertos ordenada para el intento actual:
-    - Empieza en el siguiente índice round-robin.
-    - Si se especifica una sesión válida, la mueve al frente
-      sin alterar el orden del resto (failover correcto).
+    Devuelve la lista de puertos ordenada por menor cantidad de envíos (least-sends).
+    Si se especifica una sesión válida, la mueve al frente sin alterar el resto.
     """
-    start_idx = get_next_rr_index()
-    ordered_sessions = SESSIONS[start_idx:] + SESSIONS[:start_idx]
+    with send_count_lock:
+        ordered = sorted(SESSIONS, key=lambda s: session_send_count[s])
 
     if preferred_session and preferred_session in SESSIONS:
-        ordered_sessions.remove(preferred_session)
-        ordered_sessions.insert(0, preferred_session)
+        ordered.remove(preferred_session)
+        ordered.insert(0, preferred_session)
 
-    return [SESSIONS_PORT[s] for s in ordered_sessions]
+    return [SESSIONS_PORT[s] for s in ordered]
 
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def filter_response_headers(headers: dict) -> dict:
     return {k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP_HEADERS}
@@ -45,10 +45,6 @@ def _build_request_payload(
     data_bytes: Optional[bytes],
     files_for_requests: Optional[dict],
 ) -> tuple[Optional[dict], Optional[bytes | dict]]:
-    """
-    Devuelve (files_payload, data_param) listos para requests.request().
-    Centraliza la lógica duplicada que había en ambas funciones de forwarding.
-    """
     if not files_for_requests:
         return None, data_bytes
 
@@ -70,6 +66,8 @@ def _build_request_payload(
     return files_payload, form_fields or None
 
 
+# ── Forwarding ─────────────────────────────────────────────────────────────────
+
 def _make_requests_loop_and_forward(
     method: str,
     path: str,
@@ -80,15 +78,12 @@ def _make_requests_loop_and_forward(
     start_ports: list[int],
     result: dict,
 ) -> None:
-    """
-    Intenta reenviar la request en el orden de start_ports (round-robin + failover).
-    Guarda la primera respuesta con status < 500.
-    """
     fwd_headers = {k: v for k, v in (headers or {}).items() if k.lower() != 'host'}
     files_payload, data_param = _build_request_payload(data_bytes, files_for_requests)
     last_error = None
 
     for port in start_ports:
+        _increment_send_count(port)          # ← contabilizar intento
         try:
             resp = requests.request(
                 method=method,
@@ -126,13 +121,10 @@ def _make_request_single_port(
     port: int,
     result: dict,
 ) -> None:
-    """
-    Reenvía únicamente al puerto indicado (sin failover).
-    Guarda la respuesta aunque sea 5xx.
-    """
     fwd_headers = {k: v for k, v in (headers or {}).items() if k.lower() != 'host'}
     files_payload, data_param = _build_request_payload(data_bytes, files_for_requests)
 
+    _increment_send_count(port)              # ← contabilizar intento
     try:
         resp = requests.request(
             method=method,
@@ -151,6 +143,8 @@ def _make_request_single_port(
     except Exception as e:
         result['error'] = str(e)
 
+
+# ── Thread runners ─────────────────────────────────────────────────────────────
 
 def run_forward_thread_and_get_response(
     method: str,

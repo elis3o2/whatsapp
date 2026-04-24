@@ -15,7 +15,7 @@ from utils import (
     run_forward_thread_and_get_response,
     _make_request_single_port,
     build_ports_priority_queue,
-    rr_lock, rr_index,
+    send_count_lock, session_send_count,   # ← antes era rr_lock, rr_index
 )
 
 
@@ -233,15 +233,15 @@ async def status_all():
 # Debug / Health
 # ──────────────────────────────────────────────
 
-@app.get("/_debug/rr_state", tags=["debug"])
+@app.get("/debug", tags=["debug"])
 async def debug_rr():
-    # FIX: importa rr_lock y rr_index desde utils en lugar de referenciarlos localmente
-    with rr_lock:
-        return {
-            "rr_index": rr_index,
-            "sessions": SESSIONS,
-            "session_to_port": SESSIONS_PORT,
-        }
+    with send_count_lock:
+        counts = dict(session_send_count)
+    return {
+        "session_send_counts": counts,
+        "sessions": SESSIONS,
+        "session_to_port": SESSIONS_PORT,
+    }
 
 
 @app.get("/", tags=["health"])
