@@ -83,7 +83,6 @@ def _make_requests_loop_and_forward(
     last_error = None
 
     for port in start_ports:
-        _increment_send_count(port)          # ← contabilizar intento
         try:
             resp = requests.request(
                 method=method,
@@ -100,6 +99,7 @@ def _make_requests_loop_and_forward(
                 last_error = f"HTTP {resp.status_code} from port {port}"
                 continue
 
+            _increment_send_count(port)      # ← solo si llegó hasta acá
             result['status_code'] = resp.status_code
             result['headers'] = dict(resp.headers)
             result['content'] = resp.content
@@ -109,7 +109,6 @@ def _make_requests_loop_and_forward(
             last_error = str(e)
 
     result['error'] = last_error or "No response from any backend"
-
 
 def _make_request_single_port(
     method: str,
@@ -124,7 +123,6 @@ def _make_request_single_port(
     fwd_headers = {k: v for k, v in (headers or {}).items() if k.lower() != 'host'}
     files_payload, data_param = _build_request_payload(data_bytes, files_for_requests)
 
-    _increment_send_count(port)              # ← contabilizar intento
     try:
         resp = requests.request(
             method=method,
@@ -136,13 +134,13 @@ def _make_request_single_port(
             timeout=FORWARD_TIMEOUT,
             proxies={"http": None, "https": None},
         )
+        _increment_send_count(port)          # ← solo si no hubo excepción
         result['status_code'] = resp.status_code
         result['headers'] = dict(resp.headers)
         result['content'] = resp.content
 
     except Exception as e:
         result['error'] = str(e)
-
 
 # ── Thread runners ─────────────────────────────────────────────────────────────
 
