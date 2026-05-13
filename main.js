@@ -733,20 +733,21 @@ app.get('/estado/:id/:numero', async (req, res) => {
 });
 
 app.get('/get_mensajes', async (req, res) => {
-  const numero = req.params.numero
-  if (!numero) return res.status(400).json({code:-1, error: 'Faltan datos' })
-  if (numero.length !== 13) return res.status(400).json({code: -2, error: 'Número inválido' })
+  const numero = req.query.numero
+
+  if (!numero) return res.status(400).json({ code: -1, error: 'Faltan datos' })
+  if (numero.length !== 13) return res.status(400).json({ code: -2, error: 'Número inválido' })
+
   const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
-  if (!isRegistered) return res.status(422).json({code: -3, error: 'Número sin whatsapp' })
+  if (!isRegistered) return res.status(422).json({ code: -3, error: 'Número sin whatsapp' })
+
   try {
     const chat = await client.getChatById(`${numero}@c.us`)
     const mensajes = await chat.fetchMessages({ limit: 20 })
-    console.log(mensajes)
     res.json(mensajes)
   } catch (err) {
     console.error(err)
-    res.status(500).json({ code:-5, error: 'Error al obtener mensajes' })
+    res.status(500).json({ code: -5, error: 'Error al obtener mensajes' })
   }
 })
-
 module.exports = { app }
