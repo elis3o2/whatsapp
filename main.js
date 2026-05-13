@@ -732,22 +732,37 @@ app.get('/estado/:id/:numero', async (req, res) => {
   res.json({code: 0, id: message.id.id, ack: message.ack, from: message.from, to: message.to, time: fechaLocal, session: SESSION_ID});
 });
 
-app.get('/get_mensajes', async (req, res) => {
-  const numero = req.query.numero
+app.get('/get_mensajes/:numero', async (req, res) => {
 
-  if (!numero) return res.status(400).json({ code: -1, error: 'Faltan datos' })
-  if (numero.length !== 13) return res.status(400).json({ code: -2, error: 'Número inválido' })
+  const { numero } = req.params;
+  if (!numero) { return res.status(400).json({ code: -1, error: 'Faltan datos' });}
+  if (numero.length !== 13) { return res.status(400).json({ code: -2, error: 'Número inválido' });}
 
-  const isRegistered = await client.isRegisteredUser(`${numero}@c.us`)
-  if (!isRegistered) return res.status(422).json({ code: -3, error: 'Número sin whatsapp' })
-
+  // Verificar registro usando getNumberId en lugar de isRegisteredUser
+  // (más robusto ante el cambio @lid)
+  let contactId;
   try {
-    const chat = await client.getChatById(`${numero}@c.us`)
-    const mensajes = await chat.fetchMessages({ limit: 20 })
-    res.json(mensajes)
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ code: -5, error: 'Error al obtener mensajes' })
+    contactId = await client.getNumberId(numero);
+    if (!contactId) {
+      return res.status(422).json({ code: -3, error: 'Número sin whatsapp' });
+    }
+  } catch (e) {
+    return res.status(422).json({ code: -3, error: 'Número sin whatsapp' });
   }
-})
-module.exports = { app }
+
+  // Construir el serialized ID del mensaje (fromMe = true)
+  // Formato: true_NUMERO@c.us_MSGID  ó  true_NUMERO@lid_MSGID
+  let messages;
+  try {
+    const chat = await client.getChatById(contactId._serialized);
+    messages = await chat.fetchMessages({ limit: 50, fromMe: true });
+  } catch (e) {
+    messages = null;
+  }
+  finally{
+    if (!messages) {
+      res.status(500).json({ code: -5, error: 'Error al obtener mensajes' })
+    }
+    res.json(messages)
+  }
+});
