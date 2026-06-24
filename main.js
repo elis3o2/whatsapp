@@ -47,33 +47,48 @@ process.on('uncaughtException', (err) => {
 const sendQueue = []
 let processingQueue = false
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function enqueue(taskFn) {
   return new Promise((resolve, reject) => {
-    console.log('[queue] enqueue, length before:', sendQueue.length)
-    sendQueue.push({ taskFn, resolve, reject })
-    processQueue().catch(err => console.error('Error en processQueue:', err))
-  })
+    console.log('[queue] enqueue, length before:', sendQueue.length);
+    sendQueue.push({ taskFn, resolve, reject });
+    processQueue().catch(err => console.error('Error en processQueue:', err));
+  });
 }
 
 async function processQueue() {
-  if (processingQueue) return
-  processingQueue = true
-  console.log('[queue] processQueue starting')
+  if (processingQueue) return;
+
+  processingQueue = true;
+  console.log('[queue] processQueue starting');
+
   while (sendQueue.length > 0) {
-    const item = sendQueue.shift()
-    console.log('[queue] processing task, remaining:', sendQueue.length)
+    const item = sendQueue.shift();
+    console.log('[queue] processing task, remaining:', sendQueue.length);
+
     try {
-      await waitForClientReady()
-      const result = await item.taskFn()
-      item.resolve(result)
-      console.log('[queue] task finished')
+      await waitForClientReady();
+
+      const result = await item.taskFn();
+      item.resolve(result);
+
+      console.log('[queue] task finished');
+
+      // Esperar 90 segundos antes de procesar el siguiente mensaje
+      if (sendQueue.length > 0) {
+        console.log('[queue] waiting 90 seconds...');
+        await sleep(90 * 1000);
+      }
+
     } catch (err) {
-      item.reject(err)
-      console.error('[queue] task failed:', err)
+      item.reject(err);
+      console.error('[queue] task failed:', err);
     }
   }
-  processingQueue = false
-  console.log('[queue] processQueue empty')
+
+  processingQueue = false;
+  console.log('[queue] processQueue empty');
 }
 
 function waitForClientReady(timeout = 120000) {
