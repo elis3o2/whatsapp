@@ -110,7 +110,10 @@
 
     "no-encontrado": {
       "type": "message",
-      "template": "No encontramos una persona con esos datos."
+      "template": "No encontramos una persona con esos datos.",
+      "next": {
+        "default": "pedir-dni"
+      }
     },
 
     "error-api": {

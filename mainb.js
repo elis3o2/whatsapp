@@ -18,6 +18,9 @@ const crypto  = require('crypto')
 const path    = require('path')
 const mustache = require('mustache')
 const axios   = require('axios')
+const { HttpsProxyAgent } = require('https-proxy-agent');
+const agent = new HttpsProxyAgent(process.env.HTTPS_PROXY);
+
 // pino no es necesario sin makeInMemoryStore
 
 const upload = multer({ dest: 'uploads/' })
@@ -363,6 +366,7 @@ async function initBaileys(sessionId) {
   sock = makeWASocket({
     version,
     auth: state,
+    agent,
     printQRInTerminal: false,
     logger: { level: 'silent', trace(){}, debug(){}, info(){}, warn: console.warn.bind(console), error: console.error.bind(console), child(){ return this } },
     browser: ['Chrome (Linux)', 'Chrome', '120.0.0'],
