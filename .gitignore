@@ -6,3 +6,5 @@ uploads
 wwbjs-logs
 .wwebjs_auth
 .wwebjs_cache
+messages_default.db
+.auth_default

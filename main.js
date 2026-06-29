@@ -20,6 +20,7 @@ const app = express()
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
+const scripts = require("./scripts");
 // Tomar SESSION_ID de env (indicarlo al lanzar el contenedor)
 const SESSION_ID = process.env.SESSION_ID || 'default'
 
@@ -202,28 +203,36 @@ const createClient = (sessionId) => {
   })
 
 
-  newClient.on('message', async (message) => {
-    console.log(`[${sessionId}] mensaje de ${message.from}: ${String(message.body || '').slice(0,100)}`)
-  //  const contact = await message.getContact();
-  //  const chatId = contact.number
-  //  console.log("LLEGO MENSAJE ", message)
-  //  console.log("ESPERAS: " , esperas)
-  //  console.log("CHAT Id", chatId)
-  //  if (esperas.has(chatId)) {
-  //    console.log("POSITVO")
-  //    const idMensaje = esperas.get(chatId)
-  //    respuestas.set(idMensaje, message)
-  //    esperas.delete(chatId)
-  //    if (resolvers.has(idMensaje)) {
-  //      resolvers.get(idMensaje).forEach(r => r({ message }))
-  //      resolvers.delete(idMensaje)
-  //    }
-  //    if (timeouts.has(idMensaje)) {
-  //      clearTimeout(timeouts.get(idMensaje))
-  //      timeouts.delete(idMensaje)
-  //    }
-  //  }
-  })
+    newClient.on("message", async (message) => {
+
+        const texto = (message.body || "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toLowerCase();
+
+        if (texto === "¡hola! este es mi primer mensaje.") {
+
+        const chatId =
+            message.from?.includes("@c.us")
+                ? message.from
+                : message._data?.from?.user
+                    ? message._data.from.user + "@c.us"
+                    : null;
+            console.log("NUMERO:", chatId);
+
+            const flow = loadFlowByName("nuevo-paciente");
+
+            await processFlowForChat(
+                flow,
+                chatId,
+                "http://localhost:4000/flow",
+                crypto.randomUUID()
+            );
+
+            return;
+        }
+
+    });
 
   newClient.on('change_state', (state) => {
     console.log(`[${sessionId}] state changed:`, state)
@@ -420,8 +429,14 @@ async function processFlowForChat(flowJson, numero, webhook, id) {
         const fechaLocalSent = formatFechaFromMessage(sent)
         if (webhook) axios.post(webhook, { event: 'input', flow: flowName, id: sent.id.id, from: sent._data.from.user, to: sent._data.to.user, time: fechaLocalSent, nodeId, id: id, session: SESSION_ID }).catch(()=>{})
         const incoming = await waitResponse(numero, sent)
-        if (!incoming) { if (webhook) axios.post(webhook, { event: 'error', flow: flowName, nodeId, id: id, error: 'timeout or no response' }).catch(()=>{}); throw new Error('Timeout esperando respuesta en nodo: ' + nodeId) }
-        ctx.vars.last_input = (incoming.body || incoming).toString().trim()
+        if (!incoming) { if (webhook) axios.post(webhook, { event: 'error', flow: flowName, nodeId, id: id, error: 'timeout or no response' }).catch(()=>{}); throw new Error('Timeout esperando respuesta en nodo: ' + nodeId) }     
+        
+        const value = (incoming.body || incoming).toString().trim();
+        ctx.vars.last_input = value;
+        if(node.save){
+          ctx.vars[node.save] = value;
+        }
+
         const fechaLocalIncoming = formatFechaFromMessage(incoming)
         if (webhook) axios.post(webhook, { event: 'incoming_message', flow: flowName, id: incoming.id.id, from: incoming.from, to: incoming.to, time: fechaLocalIncoming, message: ctx.vars.last_input, id: id, session: SESSION_ID }).catch(()=>{})
         const nextMap = node.next || {}
@@ -441,10 +456,37 @@ async function processFlowForChat(flowJson, numero, webhook, id) {
         const af = activeFlows.get(numero) || {}
         af.nodeId = nodeId; af.vars = ctx.vars; activeFlows.set(numero, af)
         continue
+      
+      } else if(node.type === "script"){
+
+          const fn = scripts[node.script];
+
+          if(!fn)
+            throw new Error(`Script inexistente: ${node.script}`);
+
+            const result = await fn(ctx);
+
+            const nextNode = node.next?.[result];
+
+            if(!nextNode)
+              throw new Error(
+                `El script '${node.script}' devolvió '${result}' y no existe un next para ese valor`);
+
+            nodeId = nextNode;
+
+            const af = activeFlows.get(numero) || {};
+
+            af.nodeId = nodeId;
+            af.vars = ctx.vars;
+
+            activeFlows.set(numero, af);
+
+            continue;
+
       } else {
         await enqueue(async () => await client.sendMessage(chatId, text, {
         sendSeen: false
-    }))
+      }))
         nodeId = null
         break
       }

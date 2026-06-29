@@ -1,0 +1,121 @@
+{
+  "id": "nuevo-paciente",
+  "start": "bienvenida",
+  "nodes": {
+    "bienvenida": {
+      "type": "message",
+      "template": "Hola.\n\nPor favor agendá este contacto para que podamos comunicarnos.",
+      "next": {
+        "default": "pedir-dni"
+      }
+    },
+
+    "pedir-dni": {
+      "type": "input",
+      "template": "Ingrese su número de DNI.",
+      "save": "dni",
+      "next": {
+        "any": "validar-dni"
+      }
+    },
+
+    "validar-dni": {
+      "type": "script",
+      "script": "validarDni",
+      "next": {
+        "ok": "pedir-sexo",
+        "error": "dni-invalido"
+      }
+    },
+
+    "dni-invalido": {
+      "type": "message",
+      "template": "El DNI ingresado no es válido.",
+      "next": {
+        "default": "pedir-dni"
+      }
+    },
+
+    "pedir-sexo": {
+    "type": "input",
+    "template": "Ingrese 1 o 2 segun su sexo \n1 - Femenino\n2 - Masculino",
+    "save": "sexo",
+    "next": {
+      "any": "validar-sexo"
+    }
+  },
+
+  "validar-sexo": {
+    "type": "script",
+    "script": "validarSexo",
+    "next": {
+      "ok": "consultar-padron",
+      "error": "sexo-invalido"
+    }
+  },
+
+  "sexo-invalido": {
+    "type": "message",
+    "template": "El sexo ingresado no es válido. Ingrese 1 o 2.",
+    "next": {
+      "default": "pedir-sexo"
+    }
+  },
+    
+    "consultar-padron": {
+      "type": "script",
+      "script": "consultarPadron",
+      "next": {
+        "ok": "confirmar-datos",
+        "not_found": "no-encontrado",
+        "error": "error-api"
+      }
+    },
+
+    "confirmar-datos": {
+      "type": "input",
+      "template": "Confirme que los siguientes datos son correctos:\n\nNombre: {{{persona.nombre}}}\nApellido: {{{persona.apellido}}}\nFecha de nacimiento: {{{persona.fechaNacimiento}}}\n\nResponda:\n1 - Sí\n2 - No",
+      "save": "confirmacion",
+      "next": {
+        "any": "router-confirmacion"
+      }
+    },
+
+    "router-confirmacion": {
+      "type": "router",
+      "routes": {
+        "1": "datos-confirmados",
+        "2": "pedir-dni",
+        "si": "datos-confirmados",
+        "sí": "datos-confirmados",
+        "s": "datos-confirmados",
+        "no": "pedir-dni",
+        "n": "pedir-dni"
+      },
+      "default": "confirmacion-invalida"
+    },
+
+    "confirmacion-invalida": {
+      "type": "message",
+      "template": "Respuesta inválida. Responda 1 (Sí) o 2 (No).",
+      "next": {
+        "default": "confirmar-datos"
+      }
+    },
+
+    "datos-confirmados": {
+      "type": "message",
+      "template": "Perfecto. Sus datos fueron confirmados."
+    },
+
+    "no-encontrado": {
+      "type": "message",
+      "template": "No encontramos una persona con esos datos."
+    },
+
+    "error-api": {
+      "type": "message",
+      "template": "Ocurrió un error consultando el padrón."
+    }
+  }
+}
