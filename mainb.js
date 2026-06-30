@@ -819,6 +819,7 @@ async function processFlowForChat(flowJson, numero, webhook, id) {
                             ctx.vars,
                             chatId
                         );
+                        console.log("RESULTADO SCRIPT:", result);
 
                     } catch (e) {
 
