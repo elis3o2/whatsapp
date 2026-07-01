@@ -574,7 +574,7 @@ async function sendWebhook(webhook, data) {
 }
 
 
-async function processFlowForChat(flowJson, numero, webhook, id) {
+async function processFlowForChat(flowJson,chatId, numero, webhook, id) {
 
     const flowName = flowJson.id || "flow";
     const ctx = { vars: {} };

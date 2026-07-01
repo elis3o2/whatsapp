@@ -138,13 +138,14 @@ async function initBaileys(sessionId) {
       if (msg.key.fromMe) continue
 
       const norm = normalizeBaileysMessage(msg)
-      const chatId = msg.key.remoteJid || ''
+      const chatId = msg.key.remoteJidAlt || ''
       const numero = chatId.split('@')[0]
       const texto = (norm.body || '')
         .replace(/\s+/g, ' ')
         .trim()
         .toLowerCase()
 
+      console.log(msg)
       // ─────────────────────────────────────────────
       // 🟢 TRIGGER FLOW POR MENSAJE ESPECIAL
       // ─────────────────────────────────────────────
