@@ -1,9 +1,23 @@
 module.exports = {
     async run(vars) {
-        const opcion = parseInt(vars.opcion_domicilio, 10);
+
+        const opcionTexto = (vars.opcion_domicilio || "")
+            .toString()
+            .trim()
+            .toUpperCase();
+
+        if (opcionTexto === "R") {
+            return { next: "reingresar" };
+        }
+
+        if (opcionTexto === "O") {
+            return { next: "omitir" };
+        }
+
+        const opcion = parseInt(opcionTexto, 10);
 
         if (
-            isNaN(opcion) ||
+            Number.isNaN(opcion) ||
             !Array.isArray(vars.domicilios) ||
             opcion < 1 ||
             opcion > vars.domicilios.length

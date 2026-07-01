@@ -62,11 +62,12 @@ module.exports = {
                     console.log("data:", e.response?.data);
                 }
             } 
-
+            results_query = response.data.results_query1[0]
             return {
                 next: "ok",
                 vars: {
-                    persona: persona
+                    persona: persona,
+                    results_query
                 }
             };
 

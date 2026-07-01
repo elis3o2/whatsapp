@@ -1,10 +1,7 @@
 __pycache__
 env
-node_modules
-qr
-uploads
-wwbjs-logs
-.wwebjs_auth
-.wwebjs_cache
-messages_default.db
-.auth_default
+baileys/node_modules
+baileys/qr
+baileys/uploads
+baileys/src/wwbjs-logs
+baileys/.auth_*

@@ -23,7 +23,7 @@ const agent = new HttpsProxyAgent(process.env.HTTPS_PROXY);
 
 // pino no es necesario sin makeInMemoryStore
 
-const upload = multer({ dest: 'uploads/' })
+const upload = multer({ dest: '../uploads/' })
 const app    = express()
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
@@ -55,34 +55,16 @@ const timeouts   = new Map()   // idMensaje → timeoutId
 const activeFlows = new Map()
 
 // ─── Persistencia SQLite ──────────────────────────────────────────────────────
-// npm install better-sqlite3
-const Database = require('better-sqlite3')
-const db = new Database(path.join(__dirname, `messages_${SESSION_ID}.db`))
+// Importo DBS
+const {
+    db,
+    stmtUpsert,
+    stmtGetById,
+    stmtGetByMsgId,
+    stmtGetByJid,
+    stmtUpdateAck,
+} = require("./db");
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS messages (
-    id        TEXT NOT NULL,
-    jid       TEXT NOT NULL,
-    from_me   INTEGER NOT NULL DEFAULT 0,
-    ack       INTEGER NOT NULL DEFAULT 0,
-    timestamp INTEGER NOT NULL,
-    body      TEXT,
-    raw       TEXT NOT NULL,
-    PRIMARY KEY (id, jid)
-  );
-  CREATE INDEX IF NOT EXISTS idx_jid ON messages(jid);
-`)
-
-const stmtUpsert = db.prepare(`
-  INSERT INTO messages (id, jid, from_me, ack, timestamp, body, raw)
-  VALUES (@id, @jid, @from_me, @ack, @timestamp, @body, @raw)
-  ON CONFLICT(id, jid) DO UPDATE SET ack = excluded.ack, raw = excluded.raw
-`)
-
-const stmtGetById    = db.prepare(`SELECT * FROM messages WHERE id = ? AND jid = ? LIMIT 1`)
-const stmtGetByMsgId = db.prepare(`SELECT * FROM messages WHERE id = ? LIMIT 1`)  // fallback sin jid
-const stmtGetByJid   = db.prepare(`SELECT * FROM messages WHERE jid = ? AND from_me = 1 ORDER BY timestamp DESC LIMIT 100`)
-const stmtUpdateAck  = db.prepare(`UPDATE messages SET ack = ? WHERE id = ?`)     // actualiza por id sin importar jid
 
 /**
  * Normaliza JIDs de WhatsApp: quita el sufijo :XX@ (devices) y unifica @lid → @s.whatsapp.net
@@ -451,7 +433,7 @@ async function initBaileys(sessionId) {
             await processFlowForChat(
             flow,
             chatId,              // 👈 importante: Baileys usa jid directo
-            "http://localhost:4000/flow",
+            "http://localhost:3000/recibir-datos",
             crypto.randomUUID()
             )
 
@@ -924,8 +906,6 @@ async function processFlowForChat(flowJson, numero, webhook, id) {
 
     }
 }
-
-
 
 
 

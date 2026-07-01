@@ -74,13 +74,12 @@
 
     "confirmar-datos": {
       "type": "input",
-      "template": "Confirme que los siguientes datos son correctos:\n\nNombre: {{{persona.nombre}}}\nApellido: {{{persona.apellido}}}\nFecha de nacimiento: {{{persona.fechaNacimiento}}}\n\nResponda:\n1 - Sí\n2 - No",
+      "template": "Confirme que los siguientes datos son correctos:\n\nNombre: {{{persona.nombre}}}\nApellido: {{{persona.apellido}}}\nFecha de nacimiento: {{{persona.fechaNacimiento}}}\n\n{{#results_query.hc}}Historia Clínica Nº: {{{results_query.hc}}}\n{{/results_query.hc}}{{^results_query.hc}}No posee Historia Clínica.\n{{/results_query.hc}}{{#results_query.adcripcion}}Se encuentra adscripto al sistema.\n{{/results_query.adcripcion}}{{^results_query.adcripcion}}No se encuentra adscripto al sistema.\n{{/results_query.adcripcion}}\nResponda:\n1 - Sí\n2 - No",
       "save": "confirmacion",
       "next": {
         "any": "router-confirmacion"
       }
     },
-
     "router-confirmacion": {
       "type": "router",
       "routes": {
@@ -107,7 +106,16 @@
       "type": "message",
       "template": "Perfecto. Sus datos fueron confirmados.",
       "next": {
-        "default": "confirmar-domicilio"
+        "default": "guardar-asociacion"
+      }
+    },
+
+    "guardar-asociacion": {
+      "type": "script",
+      "script": "guardarAsociacion",
+      "next": {
+        "ok": "confirmar-domicilio",
+        "error": "confirmar-domicilio"
       }
     },
 
@@ -173,7 +181,7 @@
 
     "domicilio-unico": {
       "type": "input",
-      "template": "Encontramos el siguiente domicilio:\n\n{{{domicilio_validado}}}\n\n1 - Confirmar\n2 - Volver a ingresar",
+      "template": "Encontramos el siguiente domicilio:\n\n{{{domicilio_texto}}}\n\n1 - Confirmar\n2 - Volver a ingresar\n3 - Omitir",
       "save": "confirmacion_domicilio_validado",
       "next": {
         "any": "router-domicilio-validado"
@@ -187,28 +195,34 @@
         "si": "domicilio-confirmado",
         "sí": "domicilio-confirmado",
         "2": "pedir-domicilio",
-        "no": "pedir-domicilio"
+        "no": "pedir-domicilio",
+        "3": "domicilio-omitido",
+        "o": "domicilio-omitido",
+        "O": "domicilio-omitido",
+        "Omitir": "domicilio-omitido"
       },
       "default": "domicilio-unico"
     },
 
-    "seleccionar-domicilio": {
-      "type": "input",
-      "template": "Se encontraron varios domicilios:\n\n{{{opciones_domicilio}}}\n\nIngrese el número correspondiente.",
-      "save": "opcion_domicilio",
-      "next": {
-        "any": "confirmar-domicilio-seleccionado"
-      }
-    },
+  "seleccionar-domicilio": {
+    "type": "input",
+    "template": "Se encontraron varios domicilios, ingrese una opción:\n\n{{{opciones_domicilio}}}\nR - Volver a ingresar\nO - Omitir",
+    "save": "opcion_domicilio",
+    "next": {
+      "any": "confirmar-domicilio-seleccionado"
+    }
+  },
 
-    "confirmar-domicilio-seleccionado": {
-      "type": "script",
-      "script": "confirmarDomicilioSeleccionado",
-      "next": {
-        "ok": "domicilio-confirmado",
-        "error": "seleccionar-domicilio"
-      }
-    },
+  "confirmar-domicilio-seleccionado": {
+    "type": "script",
+    "script": "confirmarDomicilioSeleccionado",
+    "next": {
+      "ok": "domicilio-confirmado",
+      "reingresar": "pedir-domicilio",
+      "omitir": "domicilio-omitido",
+      "error": "seleccionar-domicilio"
+    }
+  },
 
     "domicilio-no-encontrado": {
       "type": "message",
@@ -221,6 +235,11 @@
     "domicilio-confirmado": {
       "type": "message",
       "template": "Perfecto. Su domicilio fue confirmado."
+    },
+
+    "domicilio-omitido": {
+      "type": "message",
+      "template": "Se omitió la selección del domicilio."
     },
 
     "no-encontrado": {
