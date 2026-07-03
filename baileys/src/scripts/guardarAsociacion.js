@@ -1,28 +1,48 @@
-const { stmtUpsertContacto } = require("../db");
+const {
+  insertPersona,
+  getPersonaByDocumento,
+  insertPersonaNumero,
+  desactivarOtrosNumeros
+} = require("../db");
 
 module.exports = {
-    async run(vars, numero) {
+  async run(vars, numero) {
+    try {
+      let persona = getPersonaByDocumento.get(vars.dni, vars.sexo);
 
-        try {
+      let id_persona;
+      if (persona) {
+        id_persona = persona.id;
+      } else {
+        const result = insertPersona.run({
+          documento: vars.dni,
+          sexo: vars.sexo,
+          nombre: vars.persona.nombre,
+          apellido: vars.persona.apellido,
+          datetime: Date.now()
+        });
+        id_persona = result.lastInsertRowid;
+      }
 
-            stmtUpsertContacto.run({
-                numero,
-                documento: vars.dni,
-                sexo: vars.sexo,
-                actualizado: Date.now()
-            });
-            console.log("NUMERO", numero)
-            return {
-                next: "ok"
-            };
+      console.log("NUMERO", numero);
 
-        } catch (err) {
+      // Si la persona tenía otro(s) número(s) activo(s), se desactivan
+      desactivarOtrosNumeros.run(id_persona, numero);
 
-            console.error("Error guardando asociación:", err);
+      // Vincula (o reactiva) el número entrante como activo
+      insertPersonaNumero.run({
+        id_persona,
+        numero,
+        estado: 1,
+        datetime: Date.now()
+      });
 
-            return {
-                next: "error"
-            };
-        }
+      return { next: "ok",
+        vars: {id_persona: id_persona}
+       };
+    } catch (err) {
+      console.error("Error guardando asociación:", err);
+      return { next: "error" };
     }
+  }
 };

@@ -31,8 +31,7 @@ module.exports = {
                 vars.domicilio_validado = result[0];
 
                 const p = result[0].properties;
-                vars.domicilio_texto =
-                    `${p.nombreCalle} ${p.altura || ""}${p.descripcion ? " - " + p.descripcion : ""}`.trim();
+                vars.domicilio_texto = `${p.name}` 
 
                 return {
                         next: "ok",
@@ -45,7 +44,7 @@ module.exports = {
             vars.opciones_domicilio = result
                 .map((f, i) => {
                     const p = f.properties;
-                    return `${i + 1} - ${p.nombreCalle} ${p.altura || ""}${p.descripcion ? " - " + p.descripcion : ""}`.trim();
+                    return `${i + 1} - ${p.name}`;
                 })
                 .join("\n");
             

@@ -1,0 +1,59 @@
+{
+  "id": "inicio",
+  "start": "buscar-persona",
+  "nodes": {
+    "buscar-persona": {
+      "type": "script",
+      "script": "buscarPersonaPorNumero",
+      "next": {
+        "encontrado": "persona-encontrada",
+        "no_encontrado": "nuevo-paciente"
+      }
+    },
+
+    "persona-encontrada": {
+      "type": "input",
+      "template": "Este número ya se encuentra asociado a la siguiente persona:\n\nNombre: {{{persona.nombre}}}\nApellido: {{{persona.apellido}}}\nDocumento: {{{persona.documento}}}\n\n¿Desea agregar otra persona asociada a este número?\n\n1 - Sí\n2 - No",
+      "save": "agregar_otra_persona",
+      "next": {
+        "any": "router-agregar-persona"
+      }
+    },
+
+    "router-agregar-persona": {
+      "type": "router",
+      "routes": {
+        "1": "nuevo-paciente",
+        "si": "nuevo-paciente",
+        "sí": "nuevo-paciente",
+        "s": "nuevo-paciente",
+
+        "2": "fin",
+        "no": "fin",
+        "n": "fin"
+      },
+      "default": "respuesta-invalida"
+    },
+
+    "respuesta-invalida": {
+      "type": "message",
+      "template": "Respuesta inválida. Responda 1 (Sí) o 2 (No).",
+      "next": {
+        "default": "persona-encontrada"
+      }
+    },
+
+    "nuevo-paciente": {
+      "type": "flow",
+      "flow": "nuevo-paciente",
+      "next": {
+        "default": "fin"
+      }
+    },
+
+    "fin": {
+      "type": "message",
+      "template": "Operación finalizada."
+    }
+  }
+}

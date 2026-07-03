@@ -49,48 +49,37 @@ let processingQueue = false
 let lastSendTime = 0;
 
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function enqueue(taskFn) {
   return new Promise((resolve, reject) => {
-    console.log('[queue] enqueue, length before:', sendQueue.length);
-    sendQueue.push({ taskFn, resolve, reject });
-    processQueue().catch(err => console.error('Error en processQueue:', err));
-  });
+    console.log('[queue] enqueue, length before:', sendQueue.length)
+    sendQueue.push({ taskFn, resolve, reject })
+    processQueue().catch(err => console.error('Error en processQueue:', err))
+  })
 }
-
 
 async function processQueue() {
-    if (processingQueue) return;
-
-    processingQueue = true;
-
-    while (sendQueue.length > 0) {
-        const item = sendQueue.shift();
-
-        try {
-            await waitForClientReady();
-
-            const elapsed = Date.now() - lastSendTime;
-            const wait = Math.max(0, 90_000 - elapsed);
-
-            if (wait > 0) {
-                console.log(`[queue] waiting ${wait} ms`);
-                await sleep(wait);
-            }
-
-            const result = await item.taskFn();
-            lastSendTime = Date.now();
-
-            item.resolve(result);
-
-        } catch (err) {
-            item.reject(err);
-        }
+  if (processingQueue) return
+  processingQueue = true
+  console.log('[queue] processQueue starting')
+  while (sendQueue.length > 0) {
+    const item = sendQueue.shift()
+    console.log('[queue] processing task, remaining:', sendQueue.length)
+    try {
+      await waitForClientReady()
+      const result = await item.taskFn()
+      item.resolve(result)
+      console.log('[queue] task finished')
+    } catch (err) {
+      item.reject(err)
+      console.error('[queue] task failed:', err)
     }
-
-    processingQueue = false;
+  }
+  processingQueue = false
+  console.log('[queue] processQueue empty')
 }
+
+
 
 function waitForClientReady(timeout = 120000) {
   if (client && clientReady) return Promise.resolve()

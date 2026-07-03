@@ -37,31 +37,31 @@
     },
 
     "pedir-sexo": {
-    "type": "input",
-    "template": "Ingrese 1 o 2 segun su sexo \n1 - Femenino\n2 - Masculino",
-    "save": "sexo",
-    "next": {
-      "any": "validar-sexo"
-    }
-  },
+      "type": "input",
+      "template": "Ingrese 1 o 2 segun su sexo \n1 - Femenino\n2 - Masculino",
+      "save": "sexo",
+      "next": {
+        "any": "validar-sexo"
+      }
+    },
 
-  "validar-sexo": {
-    "type": "script",
-    "script": "validarSexo",
-    "next": {
-      "ok": "consultar-padron",
-      "error": "sexo-invalido"
-    }
-  },
+    "validar-sexo": {
+      "type": "script",
+      "script": "validarSexo",
+      "next": {
+        "ok": "consultar-padron",
+        "error": "sexo-invalido"
+      }
+    },
 
-  "sexo-invalido": {
-    "type": "message",
-    "template": "El sexo ingresado no es válido. Ingrese 1 o 2.",
-    "next": {
-      "default": "pedir-sexo"
-    }
-  },
-    
+    "sexo-invalido": {
+      "type": "message",
+      "template": "El sexo ingresado no es válido. Ingrese 1 o 2.",
+      "next": {
+        "default": "pedir-sexo"
+      }
+    },
+
     "consultar-padron": {
       "type": "script",
       "script": "consultarPadron",
@@ -80,6 +80,7 @@
         "any": "router-confirmacion"
       }
     },
+
     "router-confirmacion": {
       "type": "router",
       "routes": {
@@ -114,132 +115,18 @@
       "type": "script",
       "script": "guardarAsociacion",
       "next": {
-        "ok": "confirmar-domicilio",
-        "error": "confirmar-domicilio"
+        "ok": "direccion",
+        "error": "direccion"
       }
     },
-
-    "confirmar-domicilio": {
-      "type": "input",
-      "template": "¿Su domicilio es?\n\n{{{persona.domicilio}}}\n\n1 - Sí\n2 - No",
-      "save": "confirmacion_domicilio",
+    "direccion": {
+      "type": "flow",
+      "flow": "nueva-direccion",
       "next": {
-        "any": "router-confirmar-domicilio"
+        "success": null,
+        "cancel": null,
+        "error": null
       }
-    },
-
-    "router-confirmar-domicilio": {
-      "type": "router",
-      "routes": {
-        "1": "usar-domicilio-padron",
-        "si": "usar-domicilio-padron",
-        "sí": "usar-domicilio-padron",
-        "s": "usar-domicilio-padron",
-
-        "2": "pedir-domicilio",
-        "no": "pedir-domicilio",
-        "n": "pedir-domicilio"
-      },
-      "default": "confirmacion-domicilio-invalida"
-    },
-
-    "usar-domicilio-padron": {
-      "type": "script",
-      "script": "usarDomicilioPadron",
-      "next": {
-        "ok": "validar-domicilio"
-      }
-    },
-    
-    "confirmacion-domicilio-invalida": {
-      "type": "message",
-      "template": "Respuesta inválida. Responda 1 (Sí) o 2 (No).",
-      "next": {
-        "default": "confirmar-domicilio"
-      }
-    },
-
-    "pedir-domicilio": {
-      "type": "input",
-      "template": "Ingrese su domicilio completo.",
-      "save": "domicilio",
-      "next": {
-        "any": "validar-domicilio"
-      }
-    },
-
-    "validar-domicilio": {
-      "type": "script",
-      "script": "validarDomicilio",
-      "next": {
-        "ok": "domicilio-unico",
-        "multiple": "seleccionar-domicilio",
-        "not_found": "domicilio-no-encontrado",
-        "error": "error-api"
-      }
-    },
-
-    "domicilio-unico": {
-      "type": "input",
-      "template": "Encontramos el siguiente domicilio:\n\n{{{domicilio_texto}}}\n\n1 - Confirmar\n2 - Volver a ingresar\n3 - Omitir",
-      "save": "confirmacion_domicilio_validado",
-      "next": {
-        "any": "router-domicilio-validado"
-      }
-    },
-
-    "router-domicilio-validado": {
-      "type": "router",
-      "routes": {
-        "1": "domicilio-confirmado",
-        "si": "domicilio-confirmado",
-        "sí": "domicilio-confirmado",
-        "2": "pedir-domicilio",
-        "no": "pedir-domicilio",
-        "3": "domicilio-omitido",
-        "o": "domicilio-omitido",
-        "O": "domicilio-omitido",
-        "Omitir": "domicilio-omitido"
-      },
-      "default": "domicilio-unico"
-    },
-
-  "seleccionar-domicilio": {
-    "type": "input",
-    "template": "Se encontraron varios domicilios, ingrese una opción:\n\n{{{opciones_domicilio}}}\nR - Volver a ingresar\nO - Omitir",
-    "save": "opcion_domicilio",
-    "next": {
-      "any": "confirmar-domicilio-seleccionado"
-    }
-  },
-
-  "confirmar-domicilio-seleccionado": {
-    "type": "script",
-    "script": "confirmarDomicilioSeleccionado",
-    "next": {
-      "ok": "domicilio-confirmado",
-      "reingresar": "pedir-domicilio",
-      "omitir": "domicilio-omitido",
-      "error": "seleccionar-domicilio"
-    }
-  },
-
-    "domicilio-no-encontrado": {
-      "type": "message",
-      "template": "No encontramos un domicilio válido. Intente ingresarlo nuevamente.",
-      "next": {
-        "default": "pedir-domicilio"
-      }
-    },
-
-    "domicilio-confirmado": {
-      "type": "message",
-      "template": "Perfecto. Su domicilio fue confirmado."
-    },
-
-    "domicilio-omitido": {
-      "type": "message",
-      "template": "Se omitió la selección del domicilio."
     },
 
     "no-encontrado": {

@@ -1,4 +1,4 @@
-// flowEngine.js — Motor de flows: espera de respuestas (input), webhooks y ejecución de nodos.
+// flowEngine.js — Motor de flows con pila de ejecución para concatenar subflows.
 
 const fs       = require('fs')
 const path     = require('path')
@@ -16,9 +16,46 @@ const respuestas = new Map()   // idMensaje → message object normalizado
 const resolvers  = new Map()   // idMensaje → [resolve, ...]
 const timeouts   = new Map()   // idMensaje → timeoutId
 
-// Flows activos
+// ─── Pila de flows activos ────────────────────────────────────────────────────
+// activeFlows: Map<chatId, ExecutionContext[]>
+// Cada entrada es un array que actúa como pila (LIFO).
+// Cuando se invoca un subflow se hace push; cuando termina, pop.
+// Si la pila queda vacía se elimina la entrada del mapa.
 const activeFlows = new Map()
 
+class ExecutionContext {
+  constructor({ flowName, flowJson, nodeId, vars, webhook, id }) {
+    this.flowName = flowName
+    this.flowJson = flowJson
+    this.nodeId   = nodeId
+    this.vars     = vars
+    this.webhook  = webhook
+    this.id       = id
+  }
+}
+
+function getStack(chatId) {
+  if (!activeFlows.has(chatId)) activeFlows.set(chatId, [])
+  return activeFlows.get(chatId)
+}
+
+function currentContext(chatId) {
+  const stack = getStack(chatId)
+  return stack[stack.length - 1] || null
+}
+
+function pushContext(chatId, ctx) {
+  getStack(chatId).push(ctx)
+}
+
+function popContext(chatId) {
+  const stack = getStack(chatId)
+  const ctx   = stack.pop()
+  if (stack.length === 0) activeFlows.delete(chatId)
+  return ctx
+}
+
+// ─── Carga de flow desde disco ────────────────────────────────────────────────
 function loadFlowByName(flowName) {
   const fileA = path.join(__dirname, 'flows', `${flowName}.json`)
   const fileB = path.join(__dirname, 'flows', flowName)
@@ -30,6 +67,7 @@ function loadFlowByName(flowName) {
   try { return JSON.parse(raw) } catch (e) { throw new Error('Flow JSON inválido: ' + e.message) }
 }
 
+// ─── Espera de respuesta del usuario ─────────────────────────────────────────
 async function waitResponse(chatId, sent, timeoutMs = 300000) {
   const idMensaje = sent.id.id
 
@@ -50,25 +88,17 @@ async function waitResponse(chatId, sent, timeoutMs = 300000) {
   })
 }
 
+// ─── Webhook ──────────────────────────────────────────────────────────────────
 async function sendWebhook(webhook, data) {
-  console.log('WEB', webhook)
   if (!webhook) return
-  console.log('SEND WEBHOOK')
-  console.log(webhook)
   try {
-    await axios.post(webhook, {
-      session: SESSION_ID,
-      ...data,
-    })
+    await axios.post(webhook, { session: SESSION_ID, ...data })
   } catch (e) {
     console.error('[webhook]', e.message)
   }
 }
 
-/**
- * Maneja un mensaje entrante para resolver una "espera" activa (input flows).
- * Llamado desde el handler de messages.upsert.
- */
+// ─── Resolver espera desde handler de mensajes entrantes ─────────────────────
 function resolveIncomingForWait(chatId, numero, norm) {
   const idMensajeEsperado = esperas.get(chatId) || esperas.get(numero)
   if (!idMensajeEsperado) return false
@@ -77,7 +107,6 @@ function resolveIncomingForWait(chatId, numero, norm) {
   esperas.delete(numero)
 
   const list = resolvers.get(idMensajeEsperado) || []
-
   respuestas.set(idMensajeEsperado, norm)
 
   const tid = timeouts.get(idMensajeEsperado)
@@ -87,49 +116,48 @@ function resolveIncomingForWait(chatId, numero, norm) {
   }
 
   list.forEach(r => r({ message: norm }))
-
   resolvers.delete(idMensajeEsperado)
   return true
 }
 
-async function processFlowForChat(flowJson, numero, webhook, id) {
+// ─── Motor de ejecución de un flow ───────────────────────────────────────────
+/**
+ * Ejecuta un flow para un chat dado.
+ * Soporta anidamiento: si un nodo es de tipo "flow", invoca processFlowForChat
+ * recursivamente (push en la pila) y al terminar retoma el flow padre (pop).
+ *
+ * Las vars se propagan hacia el subflow y los resultados vuelven al padre
+ * mediante ctx.vars al hacer pop.
+ */
+async function processFlowForChat(flowJson, numero, webhook, id, parentVars = {}) {
 
   const flowName = flowJson.id || 'flow'
-  const ctx = { vars: {} }
 
-  // Puede venir un número o un JID
-  const chatId = numero.includes('@')
-    ? numero
-    : toJid(numero)
+  const chatId = numero.includes('@') ? numero : toJid(numero)
 
-  let nodeId = flowJson.start
-
-  activeFlows.set(chatId, {
+  const ctx = new ExecutionContext({
     flowName,
     flowJson,
-    nodeId,
-    vars: ctx.vars,
+    nodeId: flowJson.start,
+    vars:   { ...parentVars },   // hereda vars del padre (o vacío si es raíz)
     webhook,
-    running: true,
+    id,
   })
+
+  pushContext(chatId, ctx)
 
   try {
 
-    while (nodeId) {
+    while (ctx.nodeId) {
 
-      const node = flowJson.nodes[nodeId]
+      const node = flowJson.nodes[ctx.nodeId]
 
-      if (!node)
-        throw new Error(`Nodo inexistente: ${nodeId}`)
+      if (!node) throw new Error(`Nodo inexistente: ${ctx.nodeId}`)
 
-      const text = mustache.render(
-        node.template || '',
-        ctx.vars
-      )
+      const text = mustache.render(node.template || '', ctx.vars)
 
-      console.log('NODO', nodeId)
-      console.log(node)
-
+      console.log('NODO', ctx.nodeId, node)
+      console.log("VARS", ctx.vars)
       // ============================================================
       // MESSAGE
       // ============================================================
@@ -138,30 +166,12 @@ async function processFlowForChat(flowJson, numero, webhook, id) {
         const sent = await enqueue(() => sendText(chatId, text))
 
         await sendWebhook(webhook, {
-          event: 'outgoing_node',
-          flow: flowName,
-          nodeId,
-          id,
-          numero: chatId,
-          messageId: sent.id.id,
-          text,
-          vars: ctx.vars,
+          event: 'outgoing_node', flow: flowName, nodeId: ctx.nodeId,
+          id, numero: chatId, messageId: sent.id.id, text, vars: ctx.vars,
         })
 
         const nextMap = node.next || {}
-
-        nodeId =
-          nextMap.any ||
-          nextMap.default ||
-          null
-
-        if (activeFlows.has(chatId)) {
-          const af = activeFlows.get(chatId)
-          af.nodeId = nodeId
-          af.vars = ctx.vars
-          activeFlows.set(chatId, af)
-        }
-
+        ctx.nodeId = nextMap.any || nextMap.default || null
         continue
       }
 
@@ -173,59 +183,26 @@ async function processFlowForChat(flowJson, numero, webhook, id) {
         const sent = await enqueue(() => sendText(chatId, text))
 
         await sendWebhook(webhook, {
-          event: 'input',
-          flow: flowName,
-          nodeId,
-          id,
-          numero: chatId,
-          messageId: sent.id.id,
-          text,
-          vars: ctx.vars,
+          event: 'input', flow: flowName, nodeId: ctx.nodeId,
+          id, numero: chatId, messageId: sent.id.id, text, vars: ctx.vars,
         })
 
         const incoming = await waitResponse(chatId, sent)
 
-        if (!incoming) {
-          throw new Error(
-            `Timeout esperando respuesta en ${nodeId}`
-          )
-        }
+        if (!incoming) throw new Error(`Timeout esperando respuesta en ${ctx.nodeId}`)
 
-        const value = (incoming.body || '')
-          .toString()
-          .trim()
+        const value = (incoming.body || '').toString().trim()
 
         ctx.vars.last_input = value
-
-        if (node.save) {
-          ctx.vars[node.save] = value
-        }
+        if (node.save) ctx.vars[node.save] = value
 
         await sendWebhook(webhook, {
-          event: 'incoming_message',
-          flow: flowName,
-          nodeId,
-          id,
-          numero: chatId,
-          message: value,
-          vars: ctx.vars,
+          event: 'incoming_message', flow: flowName, nodeId: ctx.nodeId,
+          id, numero: chatId, message: value, vars: ctx.vars,
         })
 
         const nextMap = node.next || {}
-
-        nodeId =
-          nextMap.any ||
-          nextMap.default ||
-          Object.values(nextMap)[0] ||
-          null
-
-        if (activeFlows.has(chatId)) {
-          const af = activeFlows.get(chatId)
-          af.nodeId = nodeId
-          af.vars = ctx.vars
-          activeFlows.set(chatId, af)
-        }
-
+        ctx.nodeId = nextMap.any || nextMap.default || Object.values(nextMap)[0] || null
         continue
       }
 
@@ -234,40 +211,19 @@ async function processFlowForChat(flowJson, numero, webhook, id) {
       // ============================================================
       if (node.type === 'router') {
 
-        const value = (ctx.vars.last_input || '')
-          .toString()
-          .trim()
-          .toLowerCase()
-
-        let target = null
+        const value  = (ctx.vars.last_input || '').toString().trim().toLowerCase()
         const routes = node.routes || {}
+        let target   = null
 
         for (const key of Object.keys(routes)) {
-          if (key.toLowerCase() === value) {
-            target = routes[key]
-            break
-          }
+          if (key.toLowerCase() === value) { target = routes[key]; break }
         }
 
-        if (!target) {
-          target = node.default || null
-        }
+        if (!target) target = node.default || null
 
-        if (!target) {
-          throw new Error(
-            `Router sin ruta para "${ctx.vars.last_input}"`
-          )
-        }
+        if (!target) throw new Error(`Router sin ruta para "${ctx.vars.last_input}"`)
 
-        nodeId = target
-
-        if (activeFlows.has(chatId)) {
-          const af = activeFlows.get(chatId)
-          af.nodeId = nodeId
-          af.vars = ctx.vars
-          activeFlows.set(chatId, af)
-        }
-
+        ctx.nodeId = target
         continue
       }
 
@@ -276,151 +232,110 @@ async function processFlowForChat(flowJson, numero, webhook, id) {
       // ============================================================
       if (node.type === 'script') {
 
-        let result = {
-          next: 'error',
-        }
+        let result = { next: 'error' }
 
         if (node.url) {
 
           try {
-
             const resp = await axios.post(node.url, {
-              vars: ctx.vars,
-              numero: chatId,
-              flow: flowName,
-              nodeId,
+              vars: ctx.vars, numero: chatId, flow: flowName, nodeId: ctx.nodeId,
             })
-
             result = resp.data
-
           } catch (e) {
-
-            console.error(
-              `[script-url:${node.url}]`,
-              e.message
-            )
-
+            console.error(`[script-url:${node.url}]`, e.message)
           }
 
         } else if (node.script) {
 
           try {
-
-            const scriptPath = path.join(
-              __dirname,
-              'scripts',
-              `${node.script}.js`
-            )
-
-            delete require.cache[
-              require.resolve(scriptPath)
-            ]
-
+            const scriptPath = path.join(__dirname, 'scripts', `${node.script}.js`)
+            delete require.cache[require.resolve(scriptPath)]
             const script = require(scriptPath)
-
-            result = await script.run(
-              ctx.vars,
-              chatId
-            )
-            console.log('RESULTADO SCRIPT:', result)
-
+            result = await script.run(ctx.vars, chatId)
           } catch (e) {
-
-            console.error(
-              `[script:${node.script}]`,
-              e
-            )
-
+            console.error(`[script:${node.script}]`, e)
           }
 
         } else {
-
-          console.warn(
-            `Nodo ${nodeId} no tiene script ni url`
-          )
-
+          console.warn(`Nodo ${ctx.nodeId} no tiene script ni url`)
         }
 
-        if (result.vars) {
-          Object.assign(ctx.vars, result.vars)
-        }
+        if (result.vars) Object.assign(ctx.vars, result.vars)
 
         await sendWebhook(webhook, {
-          event: 'script_result',
-          flow: flowName,
-          nodeId,
-          id,
-          numero: chatId,
-          next: result.next,
-          vars: ctx.vars,
+          event: 'script_result', flow: flowName, nodeId: ctx.nodeId,
+          id, numero: chatId, next: result.next, vars: ctx.vars,
         })
 
         const nextMap = node.next || {}
+        ctx.nodeId = nextMap[result.next] || nextMap.default || null
 
-        nodeId =
-          nextMap[result.next] ||
-          nextMap.default ||
-          null
-
-        if (!nodeId) {
-
-          throw new Error(
-            `El script devolvió "${result.next}" pero no existe una transición`
-          )
-
-        }
-
-        if (activeFlows.has(chatId)) {
-          const af = activeFlows.get(chatId)
-          af.nodeId = nodeId
-          af.vars = ctx.vars
-          activeFlows.set(chatId, af)
-        }
+        if (!ctx.nodeId) throw new Error(`El script devolvió "${result.next}" pero no existe una transición`)
 
         continue
       }
 
-      console.warn(
-        `Tipo de nodo desconocido: ${node.type}`
-      )
+      // ============================================================
+      // FLOW  —  subflow: pausa este flow, ejecuta otro y retoma
+      // ============================================================
+      if (node.type === 'flow') {
 
+        if (!node.flow) throw new Error(`Nodo ${ctx.nodeId} tipo "flow" sin campo "flow"`)
+
+        const subFlowJson = loadFlowByName(node.flow)
+
+        await sendWebhook(webhook, {
+          event: 'subflow_start', flow: flowName, nodeId: ctx.nodeId,
+          subflow: node.flow, id, numero: chatId, vars: ctx.vars,
+        })
+
+        // Ejecuta el subflow pasando las vars actuales como contexto inicial
+        const subResult = await processFlowForChat(
+          subFlowJson,
+          chatId,
+          webhook,
+          id,
+          ctx.vars,           // el subflow hereda las vars del padre
+        )
+
+        // Las vars del subflow vuelven al padre
+        if (subResult.vars) Object.assign(ctx.vars, subResult.vars)
+
+        await sendWebhook(webhook, {
+          event: 'subflow_end', flow: flowName, nodeId: ctx.nodeId,
+          subflow: node.flow, id, numero: chatId, vars: ctx.vars,
+        })
+
+        const nextMap = node.next || {}
+        ctx.nodeId = nextMap.any || nextMap.default || null
+        continue
+      }
+
+      // ============================================================
+      console.warn(`Tipo de nodo desconocido: ${node.type}`)
       break
     }
 
     await sendWebhook(webhook, {
-      event: 'flow_finished',
-      flow: flowName,
-      id,
-      numero: chatId,
-      vars: ctx.vars,
+      event: 'flow_finished', flow: flowName, id, numero: chatId, vars: ctx.vars,
     })
 
-    return {
-      ok: true,
-      vars: ctx.vars,
-    }
+    return { ok: true, vars: ctx.vars }
 
   } catch (err) {
 
     console.error('[FLOW ERROR]', err)
 
     await sendWebhook(webhook, {
-      event: 'error',
-      flow: flowName,
-      id,
-      numero: chatId,
-      vars: ctx.vars,
-      error: err.message,
+      event: 'error', flow: flowName, id, numero: chatId,
+      vars: ctx.vars, error: err.message,
     })
 
-    return {
-      ok: false,
-      error: err.message,
-    }
+    return { ok: false, error: err.message }
 
   } finally {
 
-    activeFlows.delete(chatId)
+    popContext(chatId)   // siempre saca este contexto de la pila
 
   }
 }

@@ -37,10 +37,6 @@ async function processQueue() {
       const result = await item.taskFn()
       item.resolve(result)
       console.log('[queue] task finished')
-      if (sendQueue.length > 0) {
-        console.log('[queue] waiting 90 seconds...')
-        await sleep(90 * 1000)
-      }
     } catch (err) {
       item.reject(err)
       console.error('[queue] task failed:', err)

@@ -5,3 +5,4 @@ baileys/qr
 baileys/uploads
 baileys/src/wwbjs-logs
 baileys/.auth_*
+baileys/src/*.db

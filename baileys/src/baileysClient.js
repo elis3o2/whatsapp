@@ -145,16 +145,15 @@ async function initBaileys(sessionId) {
         .trim()
         .toLowerCase()
 
-      console.log(msg)
       // ─────────────────────────────────────────────
       // 🟢 TRIGGER FLOW POR MENSAJE ESPECIAL
       // ─────────────────────────────────────────────
-      if (texto === '¡hola! este es mi primer mensaje.') {
+      if (!resolveIncomingForWait(chatId, numero, norm)) {
 
         try {
 
           // 2. Cargar flow
-          const flow = loadFlowByName('nuevo-paciente')
+          const flow = loadFlowByName('inicio')
 
           // 3. Ejecutar flow
           await processFlowForChat(
@@ -170,11 +169,6 @@ async function initBaileys(sessionId) {
           console.error('Error iniciando flow:', e)
         }
       }
-
-      // ─────────────────────────────────────────────
-      // Resolver esperas (input flows)
-      // ─────────────────────────────────────────────
-      resolveIncomingForWait(chatId, numero, norm)
     }
   })
 
