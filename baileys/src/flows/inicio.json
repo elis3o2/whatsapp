@@ -7,13 +7,29 @@
       "script": "buscarPersonaPorNumero",
       "next": {
         "encontrado": "persona-encontrada",
-        "no_encontrado": "nuevo-paciente"
+        "no_encontrado": "guardar-titular"
+      }
+    },
+
+    "guardar-titular": {
+      "type": "set",
+      "vars": {
+        "relacion": "Titular"
+      },
+      "next": "bienvenida"
+    },
+
+    "bienvenida": {
+      "type": "message",
+      "template": "Hola.\n\nPor favor agendá este contacto para que podamos comunicarnos.",
+      "next": {
+        "default": "nuevo-paciente"
       }
     },
 
     "persona-encontrada": {
       "type": "input",
-      "template": "Este número ya se encuentra asociado a la siguiente persona:\n\nNombre: {{{persona.nombre}}}\nApellido: {{{persona.apellido}}}\nDocumento: {{{persona.documento}}}\n\n¿Desea agregar otra persona asociada a este número?\n\n1 - Sí\n2 - No",
+      "template": "Este número ya se encuentra asociado a las siguientes personas:\n\n{{{personas_texto}}}\n\nIngrese el número de la opción que desea realizar\n\n1 - Agregar otra persona\n2 - Consultar/Modificar datos\n3- Finalizar",
       "save": "agregar_otra_persona",
       "next": {
         "any": "router-agregar-persona"
@@ -23,23 +39,97 @@
     "router-agregar-persona": {
       "type": "router",
       "routes": {
-        "1": "nuevo-paciente",
-        "si": "nuevo-paciente",
-        "sí": "nuevo-paciente",
-        "s": "nuevo-paciente",
-
-        "2": "fin",
-        "no": "fin",
-        "n": "fin"
+        "1": "preguntar-relacion",
+        "2": "consultar-datos",
+        "3": "fin"
       },
       "default": "respuesta-invalida"
     },
 
+    "consultar-datos": {
+      "type": "input",
+      "template": "Ingrese el número correspondiente a la persona que desea consultar o modificar:\n\n{{{personas_texto}}}",
+      "save": "indice_persona",
+      "next": {
+        "any": "seleccionar-persona"
+      }
+    },
+
+    "seleccionar-persona": {
+      "type": "script",
+      "script": "seleccionarPersona",
+      "next": {
+        "ok": "menu-persona",
+        "invalido": "consultar-datos"
+      }
+    },
+    
+    "menu-persona": {
+      "type": "flow",
+      "flow": "consultar-persona",
+      "next": {
+        "any": "fin"
+      }
+    },
+
     "respuesta-invalida": {
       "type": "message",
-      "template": "Respuesta inválida. Responda 1 (Sí) o 2 (No).",
+      "template": "Respuesta inválida. Responda 1 o 2 o 3.",
       "next": {
         "default": "persona-encontrada"
+      }
+    },
+
+    "preguntar-relacion": {
+      "type": "input",
+      "template": "¿Cuál es la relación con el titular?\n\n1 - Padre / Madre\n2 - Hermano / Hermana\n3 - Hijo / Hija\n4 - Otro",
+      "save": "opcion_relacion",
+      "next": {
+        "any": "router-relacion"
+      }
+    },
+
+    "router-relacion": {
+      "type": "router",
+      "routes": {
+        "1": "guardar-padre-madre",
+        "2": "guardar-hermano",
+        "3": "guardar-hijo",
+        "4": "escribir-relacion"
+      },
+      "default": "preguntar-relacion"
+    },
+
+    "guardar-padre-madre": {
+      "type": "set",
+      "vars": {
+        "relacion": "Padre"
+      },
+      "next": "nuevo-paciente"
+    },
+
+    "guardar-hermano": {
+      "type": "set",
+      "vars": {
+        "relacion": "Hermano"
+      },
+      "next": "nuevo-paciente"
+    },
+
+    "guardar-hijo": {
+      "type": "set",
+      "vars": {
+        "relacion": "Hijo"
+      },
+      "next": "nuevo-paciente"
+    },
+
+    "escribir-relacion": {
+      "type": "input",
+      "template": "Indique cuál es la relación con el titular.",
+      "save": "relacion",
+      "next": {
+        "any": "nuevo-paciente"
       }
     },
 

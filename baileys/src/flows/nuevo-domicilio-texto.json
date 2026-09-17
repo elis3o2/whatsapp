@@ -1,0 +1,21 @@
+{
+  "id": "nuevo-domicilio",
+  "start": "pedir-domicilio",
+  "nodes": {
+
+    "pedir-domicilio": {
+      "type": "input",
+      "template": "Ingrese su domicilio completo.",
+      "save": "domicilio",
+      "next": {
+        "any": "validar-domicilio"
+      }
+    },
+
+    "validar-domicilio": {
+      "type": "flow",
+      "flow": "nuevo-domicilio-validacion",
+      "next": {}
+    }
+  }
+}

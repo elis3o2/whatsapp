@@ -1,55 +1,7 @@
 {
-  "id": "nueva-direccion",
-  "start": "confirmar-domicilio",
+  "id": "nuevo-domicilio-validacion",
+  "start": "validar-domicilio",
   "nodes": {
-    "confirmar-domicilio": {
-      "type": "input",
-      "template": "¿Su domicilio es?\n\n{{{persona.domicilio}}}\n\n1 - Sí\n2 - No",
-      "save": "confirmacion_domicilio",
-      "next": {
-        "any": "router-confirmar-domicilio"
-      }
-    },
-
-    "router-confirmar-domicilio": {
-      "type": "router",
-      "routes": {
-        "1": "usar-domicilio-padron",
-        "si": "usar-domicilio-padron",
-        "sí": "usar-domicilio-padron",
-        "s": "usar-domicilio-padron",
-
-        "2": "pedir-domicilio",
-        "no": "pedir-domicilio",
-        "n": "pedir-domicilio"
-      },
-      "default": "confirmacion-domicilio-invalida"
-    },
-
-    "usar-domicilio-padron": {
-      "type": "script",
-      "script": "usarDomicilioPadron",
-      "next": {
-        "ok": "validar-domicilio"
-      }
-    },
-
-    "confirmacion-domicilio-invalida": {
-      "type": "message",
-      "template": "Respuesta inválida. Responda 1 (Sí) o 2 (No).",
-      "next": {
-        "default": "confirmar-domicilio"
-      }
-    },
-
-    "pedir-domicilio": {
-      "type": "input",
-      "template": "Ingrese su domicilio completo.",
-      "save": "domicilio",
-      "next": {
-        "any": "validar-domicilio"
-      }
-    },
 
     "validar-domicilio": {
       "type": "script",
@@ -135,6 +87,12 @@
       "next": {
         "default": "guardar-domicilio"
       }
+    },
+
+    "pedir-domicilio": {
+        "type": "flow",
+        "flow": "nuevo-domicilio-texo",
+        "next": {}
     },
 
     "domicilio-omitido": {

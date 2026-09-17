@@ -1,14 +1,7 @@
 {
   "id": "nuevo-paciente",
-  "start": "bienvenida",
+  "start": "pedir-dni",
   "nodes": {
-    "bienvenida": {
-      "type": "message",
-      "template": "Hola.\n\nPor favor agendá este contacto para que podamos comunicarnos.",
-      "next": {
-        "default": "pedir-dni"
-      }
-    },
 
     "pedir-dni": {
       "type": "input",
@@ -121,7 +114,7 @@
     },
     "direccion": {
       "type": "flow",
-      "flow": "nueva-direccion",
+      "flow": "nuevo-domicilio-renaper",
       "next": {
         "success": null,
         "cancel": null,

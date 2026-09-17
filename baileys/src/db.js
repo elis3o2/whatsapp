@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS persona_numero (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     id_persona  INTEGER NOT NULL,
     numero      TEXT NOT NULL,
+    relacion    TEXT NOT NULL,
     estado      INTEGER NOT NULL DEFAULT 1,
     datetime    INTEGER NOT NULL,
 
@@ -46,7 +47,6 @@ CREATE INDEX IF NOT EXISTS idx_persona_numero_numero ON persona_numero(numero);
 
 CREATE TABLE IF NOT EXISTS domicilio (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    id_persona  INTEGER NOT NULL,
     name        TEXT,
     id_calle    INTEGER,
     altura      INTEGER,
@@ -54,35 +54,68 @@ CREATE TABLE IF NOT EXISTS domicilio (
     latitud     REAL,
     longitud    REAL,
     datetime    INTEGER NOT NULL,
-    estado      INTEGER DEFAULT 1,
+
+    UNIQUE(id_calle, altura, bis)
+);
+
+CREATE TABLE IF NOT EXISTS domicilio_persona (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_domicilio  INTEGER NOT NULL,
+    id_persona    INTEGER NOT NULL,
+    estado        INTEGER NOT NULL DEFAULT 1,
+    datetime      INTEGER NOT NULL,
+
+    UNIQUE(id_domicilio, id_persona),
+
+    FOREIGN KEY(id_domicilio)
+        REFERENCES domicilio(id)
+        ON DELETE CASCADE,
 
     FOREIGN KEY(id_persona)
         REFERENCES persona(id)
         ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_domicilio_persona
-ON domicilio(id_persona);
+CREATE INDEX IF NOT EXISTS idx_domicilio_persona_persona
+ON domicilio_persona(id_persona);
 
+CREATE INDEX IF NOT EXISTS idx_domicilio_persona_domicilio
+ON domicilio_persona(id_domicilio);
 
 CREATE TABLE IF NOT EXISTS interseccion (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    id_persona            INTEGER NOT NULL,
     name                  TEXT,
     codigo_interseccion   INTEGER,
     latitud               REAL,
     longitud              REAL,
-    datetime              INTEGER NOT NULL,
-    estado                INTEGER DEFAULT 1,
+    datetime              INTEGER,
+
+    UNIQUE(name, codigo_interseccion)
+);
+
+CREATE TABLE IF NOT EXISTS interseccion_persona (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_interseccion INTEGER NOT NULL,
+    id_persona      INTEGER NOT NULL,
+    datetime        INTEGER NOT NULL,
+    estado          INTEGER DEFAULT 1,
+
+    UNIQUE(id_interseccion, id_persona),
+
+    FOREIGN KEY(id_interseccion)
+        REFERENCES interseccion(id)
+        ON DELETE CASCADE,
 
     FOREIGN KEY(id_persona)
         REFERENCES persona(id)
         ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_interseccion_persona
-ON interseccion(id_persona);
+CREATE INDEX IF NOT EXISTS idx_interseccion_persona_persona
+ON interseccion_persona(id_persona);
 
+CREATE INDEX IF NOT EXISTS idx_interseccion_persona_interseccion
+ON interseccion_persona(id_interseccion);
 
 CREATE TABLE IF NOT EXISTS domicilio_no_registrado (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,33 +207,36 @@ INSERT INTO persona_numero (
     id_persona,
     numero,
     estado,
+    relacion,
     datetime
 )
 VALUES (
     @id_persona,
     @numero,
     @estado,
+    @relacion,
     @datetime
 )
 ON CONFLICT(id_persona, numero)
 DO UPDATE SET
-    estado = excluded.estado
+    relacion = excluded.relacion,
+    estado = excluded.estado,
+    datetime = excluded.datetime
 `);
 
 
 const getPersonaByDocumento = db.prepare(`SELECT * FROM persona WHERE documento = ? AND sexo = ? LIMIT 1`);
 const getPersonaById = db.prepare(`SELECT * FROM persona WHERE id = ? LIMIT 1`);
-const getPersonaByNumero = db.prepare(`SELECT p.* FROM persona p JOIN persona_numero pn ON pn.id_persona = p.id
+const getPersonaByNumero = db.prepare(`SELECT p.*, pn.relacion FROM persona p JOIN persona_numero pn ON pn.id_persona = p.id
                                       WHERE pn.numero = ? AND pn.estado = 1`);
 const desactivarOtrosNumeros = db.prepare(`UPDATE persona_numero SET estado = 0 WHERE id_persona = ? AND numero != ? AND estado = 1`);
-
 
 // ==============================
 // DOMICILIO
 // ==============================
+
 const insertDomicilio = db.prepare(`
 INSERT INTO domicilio (
-    id_persona,
     name,
     id_calle,
     altura,
@@ -210,7 +246,6 @@ INSERT INTO domicilio (
     datetime
 )
 VALUES (
-    @id_persona,
     @name,
     @id_calle,
     @altura,
@@ -220,10 +255,51 @@ VALUES (
     @datetime
 )
 `);
-const getDomicilio = db.prepare(`SELECT * FROM domicilio WHERE id_persona = ? LIMIT 1`);
+
+const insertDomicilioPersona = db.prepare(`
+INSERT INTO domicilio_persona (
+    id_domicilio,
+    id_persona,
+    estado,
+    datetime
+)
+VALUES (
+    @id_domicilio,
+    @id_persona,
+    @estado,
+    @datetime
+)
+ON CONFLICT(id_domicilio, id_persona)
+DO UPDATE SET
+    estado = excluded.estado,
+    datetime = excluded.datetime
+`);
+
+const getDomicilioPersona = db.prepare(`
+SELECT d.*
+FROM domicilio d
+JOIN domicilio_persona dp
+  ON dp.id_domicilio = d.id
+WHERE dp.id_persona = ?
+  AND dp.estado = 1
+LIMIT 1
+`);
+
+const findDomicilio = db.prepare(`
+SELECT *
+FROM domicilio
+WHERE id_calle = ?
+  AND altura = ?
+  AND bis = ?
+LIMIT 1
+`);
+
+// ==============================
+// INTERSECCION
+// ==============================
+
 const insertInterseccion = db.prepare(`
 INSERT INTO interseccion (
-    id_persona,
     name,
     codigo_interseccion,
     latitud,
@@ -231,7 +307,6 @@ INSERT INTO interseccion (
     datetime
 )
 VALUES (
-    @id_persona,
     @name,
     @codigo_interseccion,
     @latitud,
@@ -240,7 +315,43 @@ VALUES (
 )
 `);
 
-const getInterseccion = db.prepare(`SELECT * FROM interseccion WHERE id_persona = ? LIMIT 1`);
+const insertInterseccionPersona = db.prepare(`
+INSERT INTO interseccion_persona (
+    id_interseccion,
+    id_persona,
+    estado,
+    datetime
+)
+VALUES (
+    @id_interseccion,
+    @id_persona,
+    @estado,
+    @datetime
+)
+ON CONFLICT(id_interseccion, id_persona)
+DO UPDATE SET
+    estado = excluded.estado,
+    datetime = excluded.datetime
+`);
+
+const findInterseccion = db.prepare(`
+SELECT *
+FROM interseccion
+WHERE codigo_interseccion = ?
+LIMIT 1
+`);
+
+const getInterseccionPersona = db.prepare(`
+SELECT i.*
+FROM interseccion i
+JOIN interseccion_persona ip
+  ON ip.id_interseccion = i.id
+WHERE ip.id_persona = ?
+  AND ip.estado = 1
+LIMIT 1
+`);
+// ==============================
+
 const insertDomicilioNoRegistrado = db.prepare(`
 INSERT INTO domicilio_no_registrado (
     id_persona,
@@ -253,17 +364,80 @@ VALUES (
     @datetime
 )
 `);
-const unsetDomicilios = db.prepare(`UPDATE domicilio SET estado = 0 WHERE id_persona = ? AND estado = 1`);
-const unsetIntersecciones = db.prepare(`UPDATE interseccion SET estado = 0 WHERE id_persona = ? AND estado = 1`);
-const unsetDomiciliosNoRegistrados = db.prepare(`UPDATE domicilio_no_registrado SET estado = 0 WHERE id_persona = ? AND estado = 1`);
 
-const unsetDomiciliosPersona = db.transaction((id_persona) => {
-  unsetDomicilios.run(id_persona);
-  unsetIntersecciones.run(id_persona);
-  unsetDomiciliosNoRegistrados.run(id_persona);
+const unsetDomicilios = db.prepare(`
+UPDATE domicilio_persona
+SET estado = 0,
+    datetime = ?
+WHERE id_persona = ?
+  AND estado = 1
+`);
+
+const unsetIntersecciones = db.prepare(`
+UPDATE interseccion_persona
+SET estado = 0,
+    datetime = ?
+WHERE id_persona = ?
+  AND estado = 1
+`);
+
+const unsetDomiciliosNoRegistrados = db.prepare(`
+UPDATE domicilio_no_registrado
+SET estado = 0,
+    datetime = ?
+WHERE id_persona = ?
+  AND estado = 1
+`);
+
+const unsetPersonaNumero = db.prepare(`
+UPDATE persona_numero
+SET estado = 0,
+    datetime = ?
+WHERE id_persona = ?
+  AND numero = ?
+`);
+
+const unsetDomiciliosPersona = db.transaction((id_persona, datetime) => {
+    unsetDomicilios.run(datetime, id_persona);
+    unsetIntersecciones.run(datetime, id_persona);
+    unsetDomiciliosNoRegistrados.run(datetime, id_persona);
 });
 
-const getDomicilioNoRegistrado = db.prepare(`SELECT * FROM domicilio_no_registrado WHERE id_persona = ? LIMIT 1`);
+const getDatosDomicilioSet = db.prepare(`
+SELECT
+    d.id          AS domicilio_id,
+    d.name        AS domicilio_nombre,
+
+    i.id          AS interseccion_id,
+    i.name        AS interseccion_nombre,
+
+    dnr.id        AS domicilio_nr_id,
+    dnr.domicilio AS domicilio_no_registrado
+
+FROM persona p
+
+LEFT JOIN domicilio_persona dp
+       ON dp.id_persona = p.id
+      AND dp.estado = 1
+
+LEFT JOIN domicilio d
+       ON d.id = dp.id_domicilio
+
+LEFT JOIN interseccion_persona ip
+       ON ip.id_persona = p.id
+      AND ip.estado = 1
+
+LEFT JOIN interseccion i
+       ON i.id = ip.id_interseccion
+
+LEFT JOIN domicilio_no_registrado dnr
+       ON dnr.id_persona = p.id
+      AND dnr.estado = 1
+
+WHERE p.id = ?
+LIMIT 1
+`);
+
 module.exports = {
     db,
     insertMensaje,
@@ -271,16 +445,21 @@ module.exports = {
     getMensajesByNumero,
     updateMensaje,
     insertPersona,
+    insertInterseccionPersona,
+    getInterseccionPersona,
+    findInterseccion,
     getPersonaByNumero,
     getPersonaByDocumento,
     getPersonaById,
     insertDomicilio,
-    getDomicilio,
+    insertDomicilioPersona,
+    getDomicilioPersona,
+    findDomicilio,
     insertInterseccion,
-    getInterseccion,
+    getDatosDomicilioSet,
     insertDomicilioNoRegistrado,
-    getDomicilioNoRegistrado,
     insertPersonaNumero,
     desactivarOtrosNumeros,
-    unsetDomiciliosPersona
+    unsetDomiciliosPersona,
+    unsetPersonaNumero
   };

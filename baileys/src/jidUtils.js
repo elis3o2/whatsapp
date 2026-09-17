@@ -9,9 +9,13 @@ const { state } = require('./state')
  *   "90014125920268@lid"              → "90014125920268@lid"  (se guarda tal cual, pero updateAck busca solo por id)
  */
 function normalizeJid(jid) {
-  if (!jid) return jid
-  // Quitar device suffix: "number:device@domain" → "number@domain"
-  return jid.replace(/:\d+@/, '@')
+  if (!jid) return jid;
+
+  // Elimina el sufijo del dispositivo si existe
+  jid = jid.replace(/:\d+@/, "@");
+
+  // Devuelve solo la parte antes de la @
+  return jid.split("@")[0];
 }
 
 /**

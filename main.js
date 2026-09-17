@@ -562,6 +562,7 @@ app.post('/enviar-mensaje', upload.none(), async (req, res) => {
     });
       return message
     })
+    console.log(result)
 
     const fechaLocal = formatFechaFromMessage(result)
     res.json({code:0, id: result.id.id, ack: result.ack, from: result._data.from.user, to: result._data.to.user, time: fechaLocal, session: SESSION_ID })

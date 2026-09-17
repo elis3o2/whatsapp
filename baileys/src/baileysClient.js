@@ -113,6 +113,7 @@ async function initBaileys(sessionId) {
     if (connection === 'close') {
       state.clientReady = false
       const code   = lastDisconnect?.error?.output?.statusCode
+      console.dir(lastDisconnect, { depth: null })
       const reason = DisconnectReason[code] || code
       console.warn(`⚠️ Conexión cerrada: ${reason} (${code})`)
       if (code === DisconnectReason.loggedOut) {
@@ -145,30 +146,7 @@ async function initBaileys(sessionId) {
         .trim()
         .toLowerCase()
 
-      // ─────────────────────────────────────────────
-      // 🟢 TRIGGER FLOW POR MENSAJE ESPECIAL
-      // ─────────────────────────────────────────────
-      if (!resolveIncomingForWait(chatId, numero, norm)) {
-
-        try {
-
-          // 2. Cargar flow
-          const flow = loadFlowByName('inicio')
-
-          // 3. Ejecutar flow
-          await processFlowForChat(
-            flow,
-            chatId,              // 👈 importante: Baileys usa jid directo
-            'http://localhost:3000/recibir-datos',
-            crypto.randomUUID()
-          )
-
-          return
-
-        } catch (e) {
-          console.error('Error iniciando flow:', e)
-        }
-      }
+      
     }
   })
 

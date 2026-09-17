@@ -10,7 +10,7 @@ console.log('🟢 Iniciando main.js (Baileys) — pid:', process.pid)
 console.log('🔧 SESSION_ID:', SESSION_ID)
 
 process.on('unhandledRejection', (reason, p) => console.error('Unhandled Rejection:', p, reason))
-process.on('uncaughtException',  (err)         => console.error('Uncaught Exception:', err))
+process.on('uncaughtException',  (err)       => console.error('Uncaught Exception:', err))
 
 const app = express()
 app.use(express.json())

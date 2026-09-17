@@ -224,7 +224,7 @@ router.get(['/estado/:id/:numero', '/estado'], async (req, res) => {
   if (!jid) return res.status(422).json({ code: -3, error: 'Número sin whatsapp' })
 
   try {
-    const msg = getStoredMessage(jid, id)
+    const msg = getStoredMessage(id)
     if (!msg) return res.status(400).json({ code: -4, error: 'Mensaje no encontrado' })
 
     // Leer ack actualizado directo de la DB (puede haber sido actualizado por messages.update)

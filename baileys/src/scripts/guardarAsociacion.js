@@ -5,6 +5,8 @@ const {
   desactivarOtrosNumeros
 } = require("../db");
 
+const { normalizeJid } = require("../jidUtils")
+
 module.exports = {
   async run(vars, numero) {
     try {
@@ -19,13 +21,13 @@ module.exports = {
           sexo: vars.sexo,
           nombre: vars.persona.nombre,
           apellido: vars.persona.apellido,
-          datetime: Date.now()
+          datetime: Date.now(),
+          relacion: vars.relacion
         });
         id_persona = result.lastInsertRowid;
       }
 
-      console.log("NUMERO", numero);
-
+      numero = normalizeJid(numero)
       // Si la persona tenía otro(s) número(s) activo(s), se desactivan
       desactivarOtrosNumeros.run(id_persona, numero);
 
@@ -34,6 +36,7 @@ module.exports = {
         id_persona,
         numero,
         estado: 1,
+        relacion: vars.relacion,
         datetime: Date.now()
       });
 

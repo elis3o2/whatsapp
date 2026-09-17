@@ -1,50 +1,98 @@
 const {
   insertInterseccion,
+  insertInterseccionPersona,
+  findInterseccion,
   insertDomicilio,
+  insertDomicilioPersona,
+  findDomicilio,
   insertDomicilioNoRegistrado,
   unsetDomiciliosPersona
 } = require("../db");
 
 module.exports = {
-  async run(vars, numero) {
+  async run(vars) {
     try {
-      const persona = vars.id_persona;
+
+      const id_persona = vars.id_persona;
       const domicilio_val = vars.domicilio_validado;
+      const now = Date.now();
 
-      // Desactiva domicilio / interseccion / no-registrado anteriores de esta persona
-      unsetDomiciliosPersona(persona);
+      unsetDomiciliosPersona(id_persona, now);
 
-      if (domicilio_val) {
-        if (domicilio_val.codigoInterseccion) {
-          insertInterseccion.run({
-            id_persona: persona,
+      if (!domicilio_val) {
+
+        insertDomicilioNoRegistrado.run({
+          id_persona,
+          domicilio: vars.domicilio,
+          datetime: now
+        });
+
+        return { next: "ok" };
+      }
+
+      if (domicilio_val.properties.codigoInterseccion) {
+
+        let inter = findInterseccion.get(
+            domicilio_val.properties.codigoInterseccion
+        );
+
+        if (!inter) {
+
+          const info = {
             name: domicilio_val.properties.name,
             codigo_interseccion: domicilio_val.properties.codigoInterseccion,
-            latitud: domicilio_val.geometry.coordinates[1],   // lat = index 1 en GeoJSON
-            longitud: domicilio_val.geometry.coordinates[0],  // lng = index 0 en GeoJSON
-            datetime: Date.now()
-          });
-        } else {
-          insertDomicilio.run({
-            id_persona: persona,
+            latitud: domicilio_val.geometry.coordinates[1],
+            longitud: domicilio_val.geometry.coordinates[0],
+            datetime: now
+          };
+
+          const result = insertInterseccion.run(info);
+          inter = { id: result.lastInsertRowid };
+        }
+
+        insertInterseccionPersona.run({
+          id_interseccion: inter.id,
+          id_persona,
+          estado: 1,
+          datetime: now
+        });
+
+      } else {
+
+        const bis = domicilio_val.properties.bis ? 1 : 0;
+
+        let dom = findDomicilio.get(
+            domicilio_val.properties.codigoCalle,
+            domicilio_val.properties.altura,
+            bis
+        );
+
+        if (!dom) {
+
+          const info = {
             name: domicilio_val.properties.name,
             id_calle: domicilio_val.properties.codigoCalle,
             altura: domicilio_val.properties.altura,
-            bis: domicilio_val.properties.bis ? 1 : 0,
-            latitud: domicilio_val.geometry.coordinates[1],   // lat = index 1 en GeoJSON
-            longitud: domicilio_val.geometry.coordinates[0],  // lng = index 0 en GeoJSON
-            datetime: Date.now()
-          });
+            bis,
+            latitud: domicilio_val.geometry.coordinates[1],
+            longitud: domicilio_val.geometry.coordinates[0],
+            datetime: now
+          };
+
+          const result = insertDomicilio.run(info);
+          dom = { id: result.lastInsertRowid };
         }
-      } else {
-        insertDomicilioNoRegistrado.run({
-          id_persona: persona,
-          domicilio: vars.domicilio,
-          datetime: Date.now()
+
+        insertDomicilioPersona.run({
+          id_domicilio: dom.id,
+          id_persona,
+          estado: 1,
+          datetime: now
         });
       }
 
       return { next: "ok" };
+
     } catch (err) {
       console.error("Error guardando asociación:", err);
       return { next: "error" };

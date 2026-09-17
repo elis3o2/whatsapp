@@ -275,6 +275,30 @@ async function processFlowForChat(flowJson, numero, webhook, id, parentVars = {}
         continue
       }
 
+      // ===========================================================
+      // SET 
+      // ===========================================================
+      if (node.type === 'set') {
+
+        if (!node.vars || typeof node.vars !== 'object') {
+          throw new Error(`Nodo ${ctx.nodeId} tipo "set" sin campo "vars"`);
+        }
+
+        Object.assign(ctx.vars, node.vars);
+
+        if (!node.next) {
+          throw new Error(`Nodo ${ctx.nodeId} tipo "set" sin campo "next"`);
+        }
+
+        if (typeof node.next === 'string') {
+          ctx.nodeId = node.next;
+        } else {
+          ctx.nodeId = node.next.any || node.next.default || Object.values(node.next)[0] || null;
+        }
+
+        continue;
+      }
+
       // ============================================================
       // FLOW  —  subflow: pausa este flow, ejecuta otro y retoma
       // ============================================================

@@ -1,0 +1,68 @@
+{
+    "id": "consultar-persona",
+    "start": "consultar-datos",
+    "nodes": {
+        "consultar-datos": {
+        "type": "script",
+        "script": "consultarDomicilio",
+        "next": {
+            "ok": "mostrar-datos",
+            "error": "fin"
+            }
+        },
+
+        "mostrar-datos": {
+        "type": "input",
+        "template": "Datos de la persona\n\nNombre: {{{persona.nombre}}}\nApellido: {{{persona.apellido}}}\nDocumento: {{{persona.documento}}}\nSexo: {{{persona.sexo}}}\n\n{{{domicilio_texto}}}\n\n¿Qué desea hacer?\n\n1 - Modificar domicilio\n2 - Eliminar persona\n2 - Volver",
+        "save": "opcion",
+        "next": {
+            "any": "router-opciones"
+            }
+        },
+
+        "router-opciones": {
+        "type": "router",
+        "routes": {
+            "1": "modificar-domicilio",
+            "2": "eliminar-persona",
+            "3": "fin"
+            },
+        "default": "mostrar-datos"
+        },
+
+        "modificar-domicilio": {
+            "type": "flow",
+            "flow": "nuevo-domicilio-texto",
+            "next": {
+                "default":"mensaje-fin"
+            }
+        },
+
+        "eliminar-persona": {
+            "type": "script",
+            "script": "eliminarPersona",
+            "next": {
+                "ok": "eliminado-ok",
+                "error": "eliminado-error"
+            }
+        },
+
+        "eliminado-ok": {
+            "type": "message",
+            "template": "La persona fue eliminada de su número de teléfono",
+            "next": {}
+        },
+
+        "eliminado-error": {
+            "type": "message",
+            "template": "Ocurrio un error al eliminar la persona del número de teléfono",
+            "next": {}
+        },
+
+        "mensaje-fin": {
+            "type": "message",
+            "template": "Sus datos fueron modificados.",
+            "next": {}
+        }
+    }
+}
